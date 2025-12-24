@@ -213,6 +213,7 @@ export default function AlarmEditScreen() {
                         selectedIndex={getDisplayHour()}
                         onIndexChange={handleHourChange}
                         style={styles.hourPicker}
+                        infinite={true}
                     />
 
                     {/* Minutes Picker */}
@@ -221,6 +222,7 @@ export default function AlarmEditScreen() {
                         selectedIndex={minutes}
                         onIndexChange={handleMinuteChange}
                         style={styles.minutePicker}
+                        infinite={true}
                     />
                 </GestureHandlerRootView>
 
@@ -337,13 +339,13 @@ const styles = StyleSheet.create({
         gap: Spacing.md,
     },
     periodPicker: {
-        width: 60,
+        width: 80,
     },
     hourPicker: {
-        width: 70,
+        width: 100,
     },
     minutePicker: {
-        width: 70,
+        width: 100,
     },
     section: {
         marginBottom: Spacing.xl,
