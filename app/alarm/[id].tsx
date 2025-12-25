@@ -1,7 +1,7 @@
 import WheelPicker from '@/components/WheelPicker';
 import { BorderRadius, Colors, FontFamily, FontSize, Spacing } from '@/constants/theme';
 import { useAlarms } from '@/contexts/AlarmContext';
-import { pickCustomSound, previewSound, stopAlarmSound } from '@/utils/sounds';
+import { DEFAULT_SOUND_ID, getSoundName, stopAlarmSound } from '@/utils/sounds';
 import { getAlarms } from '@/utils/storage';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -13,17 +13,85 @@ import {
     StyleSheet,
     Text,
     TextInput,
-    View,
+    View
 } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const DAY_SHORT = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+
+// Calculate next alarm time for header subtitle
+const calculateNextAlarm = (hours: number, minutes: number, days: boolean[]): string => {
+    const now = new Date();
+    const alarmTime = new Date();
+    alarmTime.setHours(hours, minutes, 0, 0);
+
+    if (days.some(d => d)) {
+        // Find next occurrence based on selected days
+        const currentDay = now.getDay();
+        let daysUntilNextAlarm = -1;
+
+        for (let i = 0; i < 7; i++) {
+            const checkDay = (currentDay + i) % 7;
+            if (days[checkDay]) {
+                if (i === 0) {
+                    // Today - check if time has passed
+                    if (alarmTime > now) {
+                        daysUntilNextAlarm = 0;
+                        break;
+                    }
+                } else {
+                    daysUntilNextAlarm = i;
+                    break;
+                }
+            }
+        }
+
+        if (daysUntilNextAlarm === -1) {
+            // Wrap around to first selected day
+            for (let i = 0; i < 7; i++) {
+                const checkDay = (currentDay + i) % 7;
+                if (days[checkDay]) {
+                    daysUntilNextAlarm = i + 7;
+                    break;
+                }
+            }
+        }
+
+        if (daysUntilNextAlarm >= 0) {
+            alarmTime.setDate(alarmTime.getDate() + daysUntilNextAlarm);
+        }
+    } else {
+        // One-time alarm
+        if (alarmTime <= now) {
+            alarmTime.setDate(alarmTime.getDate() + 1);
+        }
+    }
+
+    const diffMs = alarmTime.getTime() - now.getTime();
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+
+    if (diffHours === 0) {
+        return `Alarm in ${diffMinutes} minute${diffMinutes !== 1 ? 's' : ''}`;
+    } else if (diffHours < 24) {
+        return `Alarm in ${diffHours} hour${diffHours !== 1 ? 's' : ''} ${diffMinutes} minute${diffMinutes !== 1 ? 's' : ''}`;
+    } else {
+        const diffDays = Math.floor(diffHours / 24);
+        const remainingHours = diffHours % 24;
+        return `Alarm in ${diffDays} day${diffDays !== 1 ? 's' : ''} ${remainingHours} hour${remainingHours !== 1 ? 's' : ''}`;
+    }
+};
 
 export default function AlarmEditScreen() {
-    const { id } = useLocalSearchParams<{ id: string }>();
+    const { id, selectedSoundId: routeSoundId, selectedSoundName: routeSoundName } = useLocalSearchParams<{
+        id: string;
+        selectedSoundId?: string;
+        selectedSoundName?: string;
+    }>();
     const isNew = id === 'new';
-    const { addAlarm, updateAlarm, removeAlarm, refreshCustomSounds, customSounds } = useAlarms();
+    const { addAlarm, updateAlarm, removeAlarm } = useAlarms();
 
     // Form state
     const [hours, setHours] = useState(7);
@@ -31,9 +99,20 @@ export default function AlarmEditScreen() {
     const [label, setLabel] = useState('');
     const [days, setDays] = useState<boolean[]>([false, false, false, false, false, false, false]);
 
-    const [soundUri, setSoundUri] = useState<string | null>(null);
-    const [soundName, setSoundName] = useState('Default');
+    const [soundId, setSoundId] = useState<string>(DEFAULT_SOUND_ID);
+    const [soundName, setSoundName] = useState(getSoundName(DEFAULT_SOUND_ID));
     const [loading, setLoading] = useState(!isNew);
+
+    // State for repeat day picker modal
+    const [showRepeatPicker, setShowRepeatPicker] = useState(false);
+
+    // Handle sound selection from sounds screen
+    useEffect(() => {
+        if (routeSoundId) {
+            setSoundId(routeSoundId);
+            setSoundName(routeSoundName || getSoundName(routeSoundId));
+        }
+    }, [routeSoundId, routeSoundName]);
 
     // Load existing alarm if editing
     useEffect(() => {
@@ -52,12 +131,10 @@ export default function AlarmEditScreen() {
             setLabel(alarm.label);
             setDays(alarm.days);
 
-            setSoundUri(alarm.soundUri);
-
-            // Find sound name
+            // Load sound - now uses soundId (could be bundled ID or custom URI)
             if (alarm.soundUri) {
-                const sound = customSounds.find(s => s.uri === alarm.soundUri);
-                setSoundName(sound?.name || 'Custom');
+                setSoundId(alarm.soundUri);
+                setSoundName(getSoundName(alarm.soundUri));
             }
         }
         setLoading(false);
@@ -67,6 +144,31 @@ export default function AlarmEditScreen() {
         const newDays = [...days];
         newDays[index] = !newDays[index];
         setDays(newDays);
+    };
+
+    // Get display text for selected days
+    const getRepeatDisplayText = (): string => {
+        const selectedDays = days.map((selected, index) => selected ? DAY_LABELS[index] : null).filter(Boolean);
+
+        if (selectedDays.length === 0) {
+            return 'Never';
+        }
+
+        if (selectedDays.length === 7) {
+            return 'Every day';
+        }
+
+        // Check for weekdays (Mon-Fri)
+        if (days[1] && days[2] && days[3] && days[4] && days[5] && !days[0] && !days[6]) {
+            return 'Weekdays';
+        }
+
+        // Check for weekends
+        if (days[0] && days[6] && !days[1] && !days[2] && !days[3] && !days[4] && !days[5]) {
+            return 'Weekends';
+        }
+
+        return selectedDays.join(', ');
     };
 
     // Generate wheel picker data
@@ -107,17 +209,11 @@ export default function AlarmEditScreen() {
         }
     };
 
-    const handleSelectSound = async () => {
-        const sound = await pickCustomSound();
-        if (sound) {
-            setSoundUri(sound.uri);
-            setSoundName(sound.name);
-            await refreshCustomSounds();
-        }
-    };
-
-    const handlePreviewSound = () => {
-        previewSound(soundUri);
+    const handleSelectSound = () => {
+        router.push({
+            pathname: '/alarm/sounds',
+            params: { currentSoundId: soundId, alarmId: id }
+        });
     };
 
     const handleSave = async () => {
@@ -128,7 +224,7 @@ export default function AlarmEditScreen() {
             label,
             enabled: true,
             days,
-            soundUri,
+            soundUri: soundId, // Store soundId in soundUri field for compatibility
         };
 
         try {
@@ -165,8 +261,6 @@ export default function AlarmEditScreen() {
         );
     };
 
-
-
     useEffect(() => {
         return () => {
             stopAlarmSound();
@@ -183,15 +277,21 @@ export default function AlarmEditScreen() {
         );
     }
 
+    const nextAlarmText = calculateNextAlarm(hours, minutes, days);
+
     return (
         <SafeAreaView style={styles.container} edges={['top']}>
+            {/* Header */}
             <View style={styles.header}>
                 <Pressable onPress={() => router.back()} style={styles.headerButton}>
-                    <Ionicons name="close" size={28} color={Colors.text} />
+                    <Ionicons name="close" size={24} color={Colors.text} />
                 </Pressable>
-                <Text style={styles.headerTitle}>{isNew ? 'New Alarm' : 'Edit Alarm'}</Text>
+                <View style={styles.headerCenter}>
+                    <Text style={styles.headerTitle}>{isNew ? 'Add alarm' : 'Edit alarm'}</Text>
+                    <Text style={styles.headerSubtitle}>{nextAlarmText}</Text>
+                </View>
                 <Pressable onPress={handleSave} style={styles.headerButton}>
-                    <Text style={styles.saveButton}>Save</Text>
+                    <Ionicons name="checkmark" size={24} color={Colors.text} />
                 </Pressable>
             </View>
 
@@ -226,60 +326,71 @@ export default function AlarmEditScreen() {
                     />
                 </GestureHandlerRootView>
 
-                {/* Repeat Days */}
-                <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>Repeat</Text>
-                    <View style={styles.daysRow}>
-                        {DAY_LABELS.map((day, index) => (
-                            <Pressable
-                                key={day}
-                                style={[styles.dayButton, days[index] && styles.dayButtonActive]}
-                                onPress={() => toggleDay(index)}
-                            >
-                                <Text style={[styles.dayText, days[index] && styles.dayTextActive]}>
-                                    {day}
-                                </Text>
-                            </Pressable>
-                        ))}
-                    </View>
-                </View>
-
-                {/* Label */}
-                <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>Label</Text>
-                    <TextInput
-                        style={styles.input}
-                        placeholder="Alarm name"
-                        placeholderTextColor={Colors.textMuted}
-                        value={label}
-                        onChangeText={setLabel}
-                    />
-                </View>
-
-                {/* Sound */}
-                <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>Sound</Text>
-                    <View style={styles.soundRow}>
-                        <Pressable style={styles.soundSelect} onPress={handleSelectSound}>
-                            <Ionicons name="musical-notes" size={20} color={Colors.textSecondary} />
-                            <Text style={styles.soundName}>{soundName}</Text>
-                            <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
-                        </Pressable>
-                        <Pressable style={styles.previewButton} onPress={handlePreviewSound}>
-                            <Ionicons name="play" size={20} color={Colors.accent} />
-                        </Pressable>
-                    </View>
+                {/* Settings List */}
+                <View style={styles.settingsList}>
+                    {/* 1. Repeat - shows selected days */}
                     <Pressable
-                        style={styles.defaultSoundButton}
-                        onPress={() => {
-                            setSoundUri(null);
-                            setSoundName('Default');
-                        }}
+                        style={styles.settingsRow}
+                        onPress={() => setShowRepeatPicker(!showRepeatPicker)}
                     >
-                        <Text style={styles.defaultSoundText}>Use default sound</Text>
+                        <Text style={styles.settingsLabel}>Repeat</Text>
+                        <View style={styles.settingsValueContainer}>
+                            <Text style={styles.settingsValue} numberOfLines={1} ellipsizeMode="tail">
+                                {getRepeatDisplayText()}
+                            </Text>
+                            <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
+                        </View>
+                    </Pressable>
+
+                    {/* Repeat Day Picker (expandable) */}
+                    {showRepeatPicker && (
+                        <View style={styles.repeatPickerContainer}>
+                            <View style={styles.daysRow}>
+                                {DAY_LABELS.map((day, index) => (
+                                    <Pressable
+                                        key={day}
+                                        style={[styles.dayButton, days[index] && styles.dayButtonActive]}
+                                        onPress={() => toggleDay(index)}
+                                    >
+                                        <Text style={[styles.dayText, days[index] && styles.dayTextActive]}>
+                                            {DAY_SHORT[index]}
+                                        </Text>
+                                    </Pressable>
+                                ))}
+                            </View>
+                        </View>
+                    )}
+
+                    {/* Divider */}
+                    <View style={styles.settingsDivider} />
+
+                    {/* 2. Label - input field */}
+                    <View style={styles.settingsRow}>
+                        <Text style={styles.settingsLabel}>Label</Text>
+                        <TextInput
+                            style={styles.settingsInput}
+                            placeholder="Enter label"
+                            placeholderTextColor={Colors.textMuted}
+                            value={label}
+                            onChangeText={(text) => setLabel(text.slice(0, 16))}
+                            maxLength={16}
+                        />
+                    </View>
+
+                    {/* Divider */}
+                    <View style={styles.settingsDivider} />
+
+                    {/* 3. Alarm Sound - shows sound name, press to navigate */}
+                    <Pressable style={styles.settingsRow} onPress={handleSelectSound}>
+                        <Text style={styles.settingsLabel}>Alarm sound</Text>
+                        <View style={styles.settingsValueContainer}>
+                            <Text style={styles.settingsValue} numberOfLines={1} ellipsizeMode="tail">
+                                {soundName}
+                            </Text>
+                            <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
+                        </View>
                     </Pressable>
                 </View>
-
 
                 {/* Delete Button */}
                 {!isNew && (
@@ -311,25 +422,26 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
         paddingHorizontal: Spacing.md,
         paddingVertical: Spacing.sm,
-        borderBottomWidth: 1,
-        borderBottomColor: Colors.border,
     },
     headerButton: {
         padding: Spacing.sm,
     },
+    headerCenter: {
+        alignItems: 'center',
+    },
     headerTitle: {
-        fontSize: FontSize.lg,
+        fontSize: FontSize.md,
         fontFamily: FontFamily.semibold,
         color: Colors.text,
     },
-    saveButton: {
-        fontSize: FontSize.md,
-        fontFamily: FontFamily.semibold,
-        color: Colors.accent,
+    headerSubtitle: {
+        fontSize: FontSize.xs,
+        fontFamily: FontFamily.regular,
+        color: Colors.textSecondary,
+        marginTop: 2,
     },
     content: {
         flex: 1,
-        paddingHorizontal: Spacing.lg,
     },
     timePicker: {
         flexDirection: 'row',
@@ -347,24 +459,67 @@ const styles = StyleSheet.create({
     minutePicker: {
         width: 100,
     },
-    section: {
-        marginBottom: Spacing.xl,
+    settingsList: {
+        backgroundColor: Colors.surface,
+        marginHorizontal: Spacing.lg,
+        borderRadius: BorderRadius.md,
+        borderWidth: 1,
+        borderColor: Colors.border,
     },
-    sectionTitle: {
-        fontSize: FontSize.sm,
-        fontFamily: FontFamily.semibold,
+    settingsRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: Spacing.md,
+        paddingVertical: Spacing.md,
+        minHeight: 52,
+    },
+    settingsLabel: {
+        fontSize: FontSize.md,
+        fontFamily: FontFamily.regular,
+        color: Colors.text,
+        flexShrink: 0,
+    },
+    settingsValueContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flex: 1,
+        justifyContent: 'flex-end',
+        marginLeft: Spacing.md,
+        gap: Spacing.xs,
+    },
+    settingsValue: {
+        fontSize: FontSize.md,
+        fontFamily: FontFamily.regular,
         color: Colors.textSecondary,
-        textTransform: 'uppercase',
-        letterSpacing: 1,
-        marginBottom: Spacing.md,
+        textAlign: 'right',
+        flexShrink: 1,
+    },
+    settingsInput: {
+        fontSize: FontSize.md,
+        fontFamily: FontFamily.regular,
+        color: Colors.textSecondary,
+        textAlign: 'right',
+        flex: 1,
+        marginLeft: Spacing.md,
+        paddingVertical: 0,
+    },
+    settingsDivider: {
+        height: 1,
+        backgroundColor: Colors.border,
+        marginLeft: Spacing.md,
+    },
+    repeatPickerContainer: {
+        paddingHorizontal: Spacing.md,
+        paddingBottom: Spacing.md,
     },
     daysRow: {
         flexDirection: 'row',
         justifyContent: 'space-between',
     },
     dayButton: {
-        width: 44,
-        height: 44,
+        width: 36,
+        height: 36,
         borderRadius: BorderRadius.full,
         backgroundColor: Colors.surfaceAlt,
         alignItems: 'center',
@@ -381,63 +536,12 @@ const styles = StyleSheet.create({
     dayTextActive: {
         color: Colors.background,
     },
-    input: {
-        backgroundColor: Colors.surface,
-        borderWidth: 1,
-        borderColor: Colors.border,
-        borderRadius: BorderRadius.md,
-        paddingHorizontal: Spacing.md,
-        paddingVertical: Spacing.md,
-        fontSize: FontSize.md,
-        fontFamily: FontFamily.regular,
-        color: Colors.text,
-    },
-    soundRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: Spacing.sm,
-    },
-    soundSelect: {
-        flex: 1,
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: Colors.surface,
-        borderWidth: 1,
-        borderColor: Colors.border,
-        borderRadius: BorderRadius.md,
-        paddingHorizontal: Spacing.md,
-        paddingVertical: Spacing.md,
-        gap: Spacing.sm,
-    },
-    soundName: {
-        flex: 1,
-        fontSize: FontSize.md,
-        fontFamily: FontFamily.regular,
-        color: Colors.text,
-    },
-    previewButton: {
-        width: 44,
-        height: 44,
-        backgroundColor: Colors.surfaceAlt,
-        borderRadius: BorderRadius.md,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    defaultSoundButton: {
-        marginTop: Spacing.sm,
-        alignSelf: 'flex-start',
-    },
-    defaultSoundText: {
-        fontSize: FontSize.sm,
-        fontFamily: FontFamily.medium,
-        color: Colors.accent,
-    },
-
     deleteButton: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
         paddingVertical: Spacing.lg,
+        marginTop: Spacing.xl,
         gap: Spacing.sm,
     },
     deleteText: {

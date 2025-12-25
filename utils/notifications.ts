@@ -38,7 +38,12 @@ export const requestNotificationPermissions = async (): Promise<boolean> => {
     }
 };
 
-// Schedule alarm notification
+// Number of follow-up notifications for nagging alarm (60 = 1 hour for heavy sleepers)
+const NAGGING_COUNT = 60;
+// Interval between nagging notifications (in minutes)
+const NAGGING_INTERVAL_MINUTES = 1;
+
+// Schedule alarm notification with nagging follow-ups
 export const scheduleAlarmNotification = async (alarm: Alarm): Promise<string | null> => {
     try {
         // Cancel existing notification for this alarm
@@ -77,25 +82,61 @@ export const scheduleAlarmNotification = async (alarm: Alarm): Promise<string | 
             trigger.setDate(trigger.getDate() + daysToAdd);
         }
 
-        const notificationId = await Notifications.scheduleNotificationAsync({
-            content: {
-                title: '⏰ Wake Up!',
-                body: alarm.label || 'Time to wake up!',
-                data: {
-                    alarmId: alarm.id,
-                    soundUri: alarm.soundUri,
-                },
-                sound: true,
-                priority: 'max',
-            },
-            trigger: {
-                type: Notifications.SchedulableTriggerInputTypes.DATE,
-                date: trigger,
-            },
+        // Set up Android notification channel for alarms (high priority)
+        await Notifications.setNotificationChannelAsync('alarms', {
+            name: 'Alarms',
+            importance: Notifications.AndroidImportance.MAX,
+            sound: 'default',
+            vibrationPattern: [0, 500, 200, 500, 200, 500],
+            lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+            bypassDnd: true,
+            enableVibrate: true,
+            enableLights: true,
         });
 
-        console.log(`Scheduled alarm ${alarm.id} for ${trigger.toLocaleString()}`);
-        return notificationId;
+        // Thread ID to group all notifications for this alarm together
+        // iOS will show them as a single grouped notification
+        const threadId = `alarm-${alarm.id}`;
+
+        // Schedule main notification + nagging follow-ups
+        let firstNotificationId: string | null = null;
+
+        for (let i = 0; i < NAGGING_COUNT; i++) {
+            const notificationTime = new Date(trigger.getTime() + i * NAGGING_INTERVAL_MINUTES * 60 * 1000);
+
+            const notificationId = await Notifications.scheduleNotificationAsync({
+                content: {
+                    title: '⏰ Wake Up!',
+                    body: i === 0
+                        ? (alarm.label || 'Time to wake up!')
+                        : `${alarm.label || 'Alarm'} - Tap to stop`,
+                    data: {
+                        alarmId: alarm.id,
+                        soundUri: alarm.soundUri,
+                        isFollowUp: i > 0,
+                        threadId: threadId, // Store in data for grouping reference
+                    },
+                    sound: true,
+                    priority: Notifications.AndroidNotificationPriority.MAX,
+                    // iOS specific - makes notification more prominent
+                    interruptionLevel: 'timeSensitive',
+                    categoryIdentifier: 'alarm',
+                } as Notifications.NotificationContentInput,
+                trigger: {
+                    type: Notifications.SchedulableTriggerInputTypes.DATE,
+                    date: notificationTime,
+                    channelId: 'alarms',
+                },
+            });
+
+            if (i === 0) {
+                firstNotificationId = notificationId;
+            }
+
+            console.log(`Scheduled alarm ${alarm.id} notification ${i + 1}/${NAGGING_COUNT} for ${notificationTime.toLocaleString()}`);
+        }
+
+        return firstNotificationId;
     } catch (error) {
         console.error('Error scheduling alarm notification:', error);
         return null;

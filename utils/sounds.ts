@@ -3,6 +3,59 @@ import { Audio } from 'expo-av';
 import * as DocumentPicker from 'expo-document-picker';
 import { CustomSound, generateId, saveCustomSound } from './storage';
 
+// Bundled alarm sounds registry
+export interface BundledSound {
+    id: string;
+    name: string;
+    source: any;
+}
+
+export const BUNDLED_SOUNDS: BundledSound[] = [
+    { id: 'fast-alarm', name: 'Fast Alarm', source: require('../assets/sounds/Fast Alarm.mp3') },
+    { id: 'slow-alarm', name: 'Slow Alarm', source: require('../assets/sounds/Slow Alarm.mp3') },
+    { id: 'beige-sparkle', name: 'Beige Sparkle', source: require('../assets/sounds/Beige Sparkle .mp3') },
+    { id: 'coffee-run', name: 'Coffee Run', source: require('../assets/sounds/Coffee Run.mp3') },
+    { id: 'office-water', name: 'Office Water', source: require('../assets/sounds/Office Water.mp3') },
+    { id: 'whimsical', name: 'Whimsical', source: require('../assets/sounds/Wimsicle.mp3') },
+];
+
+// Default sound ID
+export const DEFAULT_SOUND_ID = 'fast-alarm';
+
+// Get sound source by ID (for bundled sounds) or URI (for custom sounds)
+export const getSoundSource = (soundId?: string | null): any => {
+    if (!soundId) {
+        // Return default sound
+        const defaultSound = BUNDLED_SOUNDS.find(s => s.id === DEFAULT_SOUND_ID);
+        return defaultSound?.source;
+    }
+
+    // Check if it's a bundled sound ID
+    const bundledSound = BUNDLED_SOUNDS.find(s => s.id === soundId);
+    if (bundledSound) {
+        return bundledSound.source;
+    }
+
+    // It's a custom sound URI
+    return { uri: soundId };
+};
+
+// Get sound name by ID or URI
+export const getSoundName = (soundId?: string | null): string => {
+    if (!soundId) {
+        const defaultSound = BUNDLED_SOUNDS.find(s => s.id === DEFAULT_SOUND_ID);
+        return defaultSound?.name || 'Default';
+    }
+
+    const bundledSound = BUNDLED_SOUNDS.find(s => s.id === soundId);
+    if (bundledSound) {
+        return bundledSound.name;
+    }
+
+    // Custom sound - return a generic name or extract from URI
+    return 'Custom';
+};
+
 let currentSound: Audio.Sound | null = null;
 
 // Initialize audio mode for background playback
@@ -20,24 +73,16 @@ export const initializeAudio = async (): Promise<void> => {
     }
 };
 
-// Play alarm sound
-export const playAlarmSound = async (uri?: string | null): Promise<void> => {
+// Play alarm sound (accepts soundId for bundled sounds or URI for custom sounds)
+export const playAlarmSound = async (soundId?: string | null): Promise<void> => {
     try {
         // Stop any currently playing sound
         await stopAlarmSound();
 
-        let soundSource: any;
-        if (uri) {
-            soundSource = { uri };
-        } else {
-            // Try to load default sound, if not available use system default
-            try {
-                soundSource = require('../assets/sounds/alarm-default.mp3');
-            } catch {
-                // Default sound not found, audio will still work with custom sounds
-                console.log('Default sound not found, using custom sound only');
-                return;
-            }
+        const soundSource = getSoundSource(soundId);
+        if (!soundSource) {
+            console.log('No sound source found');
+            return;
         }
 
         const { sound } = await Audio.Sound.createAsync(soundSource, {
@@ -65,21 +110,15 @@ export const stopAlarmSound = async (): Promise<void> => {
     }
 };
 
-// Preview a sound
-export const previewSound = async (uri?: string | null): Promise<void> => {
+// Preview a sound (accepts soundId for bundled sounds or URI for custom sounds)
+export const previewSound = async (soundId?: string | null): Promise<void> => {
     try {
         await stopAlarmSound();
 
-        let soundSource: any;
-        if (uri) {
-            soundSource = { uri };
-        } else {
-            try {
-                soundSource = require('../assets/sounds/alarm-default.mp3');
-            } catch {
-                console.log('Default sound not found');
-                return;
-            }
+        const soundSource = getSoundSource(soundId);
+        if (!soundSource) {
+            console.log('No sound source found');
+            return;
         }
 
         const { sound } = await Audio.Sound.createAsync(soundSource, {
