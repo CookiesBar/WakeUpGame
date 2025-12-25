@@ -1,5 +1,6 @@
 // Notification utilities for alarm scheduling
 import * as Notifications from 'expo-notifications';
+import { DEFAULT_SOUND_ID } from './sounds';
 import { Alarm } from './storage';
 
 // Configure notification handler
@@ -38,12 +39,33 @@ export const requestNotificationPermissions = async (): Promise<boolean> => {
     }
 };
 
-// Number of follow-up notifications for nagging alarm (60 = 1 hour for heavy sleepers)
-const NAGGING_COUNT = 60;
-// Interval between nagging notifications (in minutes)
-const NAGGING_INTERVAL_MINUTES = 1;
+// Map sound IDs to notification sound filenames
+// expo-notifications converts the sound files: replaces spaces/special chars with underscores
+const SOUND_FILE_MAP: Record<string, string> = {
+    'fast-alarm': 'Fast_Alarm.wav',
+    'slow-alarm': 'Slow_Alarm.wav',
+    'beige-sparkle': 'Beige_Sparkle_.wav',
+    'coffee-run': 'Coffee_Run.wav',
+    'office-water': 'Office_Water.wav',
+    'whimsical': 'Wimsicle.wav',
+};
 
-// Schedule alarm notification with nagging follow-ups
+// Get notification sound name from soundId
+const getNotificationSoundName = (soundId?: string | null): string | undefined => {
+    if (!soundId) {
+        soundId = DEFAULT_SOUND_ID;
+    }
+
+    // Check if it's a bundled sound
+    if (SOUND_FILE_MAP[soundId]) {
+        return SOUND_FILE_MAP[soundId];
+    }
+
+    // Custom sound - notification can't use custom URIs, use default
+    return SOUND_FILE_MAP[DEFAULT_SOUND_ID];
+};
+
+// Schedule alarm notification (single notification like Apple's alarm)
 export const scheduleAlarmNotification = async (alarm: Alarm): Promise<string | null> => {
     try {
         // Cancel existing notification for this alarm
@@ -94,49 +116,34 @@ export const scheduleAlarmNotification = async (alarm: Alarm): Promise<string | 
             enableLights: true,
         });
 
-        // Thread ID to group all notifications for this alarm together
-        // iOS will show them as a single grouped notification
-        const threadId = `alarm-${alarm.id}`;
+        // Get the sound name for notification
+        const soundName = getNotificationSoundName(alarm.soundUri);
 
-        // Schedule main notification + nagging follow-ups
-        let firstNotificationId: string | null = null;
-
-        for (let i = 0; i < NAGGING_COUNT; i++) {
-            const notificationTime = new Date(trigger.getTime() + i * NAGGING_INTERVAL_MINUTES * 60 * 1000);
-
-            const notificationId = await Notifications.scheduleNotificationAsync({
-                content: {
-                    title: '⏰ Wake Up!',
-                    body: i === 0
-                        ? (alarm.label || 'Time to wake up!')
-                        : `${alarm.label || 'Alarm'} - Tap to stop`,
-                    data: {
-                        alarmId: alarm.id,
-                        soundUri: alarm.soundUri,
-                        isFollowUp: i > 0,
-                        threadId: threadId, // Store in data for grouping reference
-                    },
-                    sound: true,
-                    priority: Notifications.AndroidNotificationPriority.MAX,
-                    // iOS specific - makes notification more prominent
-                    interruptionLevel: 'timeSensitive',
-                    categoryIdentifier: 'alarm',
-                } as Notifications.NotificationContentInput,
-                trigger: {
-                    type: Notifications.SchedulableTriggerInputTypes.DATE,
-                    date: notificationTime,
-                    channelId: 'alarms',
+        // Schedule single notification (like Apple's alarm app)
+        const notificationId = await Notifications.scheduleNotificationAsync({
+            content: {
+                title: '⏰ Wake Up!',
+                body: alarm.label || 'Time to wake up!',
+                data: {
+                    alarmId: alarm.id,
+                    soundUri: alarm.soundUri,
                 },
-            });
+                sound: soundName || true, // Use custom sound or default
+                priority: Notifications.AndroidNotificationPriority.MAX,
+                // iOS specific - makes notification more prominent
+                interruptionLevel: 'timeSensitive',
+                categoryIdentifier: 'alarm',
+            } as Notifications.NotificationContentInput,
+            trigger: {
+                type: Notifications.SchedulableTriggerInputTypes.DATE,
+                date: trigger,
+                channelId: 'alarms',
+            },
+        });
 
-            if (i === 0) {
-                firstNotificationId = notificationId;
-            }
+        console.log(`Scheduled alarm ${alarm.id} for ${trigger.toLocaleString()}`);
 
-            console.log(`Scheduled alarm ${alarm.id} notification ${i + 1}/${NAGGING_COUNT} for ${notificationTime.toLocaleString()}`);
-        }
-
-        return firstNotificationId;
+        return notificationId;
     } catch (error) {
         console.error('Error scheduling alarm notification:', error);
         return null;

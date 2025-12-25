@@ -51,7 +51,19 @@
     },
     "plugins": [
       "expo-router",
-      "expo-notifications",
+      [
+        "expo-notifications",
+        {
+          "sounds": [
+            "./assets/sounds/Fast Alarm.mp3",
+            "./assets/sounds/Slow Alarm.mp3",
+            "./assets/sounds/Beige Sparkle .mp3",
+            "./assets/sounds/Coffee Run.mp3",
+            "./assets/sounds/Office Water.mp3",
+            "./assets/sounds/Wimsicle.mp3"
+          ]
+        }
+      ],
       "expo-av",
       "expo-document-picker"
     ],
