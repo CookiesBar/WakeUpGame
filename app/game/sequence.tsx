@@ -11,8 +11,7 @@ import {
     Pressable,
     StyleSheet,
     Text,
-    TextInput,
-    View,
+    View
 } from 'react-native';
 import ConfettiCannon from 'react-native-confetti-cannon';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -30,6 +29,7 @@ type Difficulty = 'easy' | 'medium' | 'hard';
 interface ArithmeticProblem {
     question: string;
     answer: number;
+    choices: number[];
     difficulty: Difficulty;
 }
 
@@ -39,54 +39,164 @@ interface PickLargestProblem {
     difficulty: Difficulty;
 }
 
-// Generate arithmetic problem based on difficulty
-const generateArithmeticProblem = (difficulty: Difficulty): ArithmeticProblem => {
-    let a: number, b: number, operator: string, answer: number;
+// Generate wrong answers that are close to the correct answer
+const generateWrongAnswers = (correctAnswer: number, count: number): number[] => {
+    const wrongAnswers: number[] = [];
+    const usedAnswers = new Set<number>([correctAnswer]);
 
-    switch (difficulty) {
-        case 'easy':
-            a = Math.floor(Math.random() * 9) + 1; // 1-9
-            b = Math.floor(Math.random() * 9) + 1;
-            if (Math.random() > 0.5) {
-                operator = '+';
-                answer = a + b;
-            } else {
-                if (a < b) [a, b] = [b, a]; // Ensure positive result
-                operator = '-';
-                answer = a - b;
-            }
-            break;
-        case 'medium':
-            a = Math.floor(Math.random() * 50) + 10; // 10-59
-            b = Math.floor(Math.random() * 40) + 10; // 10-49
-            if (Math.random() > 0.5) {
-                operator = '+';
-                answer = a + b;
-            } else {
-                if (a < b) [a, b] = [b, a];
-                operator = '-';
-                answer = a - b;
-            }
-            break;
-        case 'hard':
-            a = Math.floor(Math.random() * 12) + 2; // 2-13
-            b = Math.floor(Math.random() * 12) + 2;
-            if (Math.random() > 0.5) {
-                operator = '×';
-                answer = a * b;
-            } else {
-                // Division - ensure clean division
-                answer = Math.floor(Math.random() * 10) + 2;
-                b = Math.floor(Math.random() * 10) + 2;
-                a = answer * b;
-                operator = '÷';
-            }
-            break;
+    while (wrongAnswers.length < count) {
+        // Generate wrong answer within a reasonable range of the correct answer
+        const variance = Math.max(10, Math.abs(correctAnswer) * 0.3);
+        let wrong = correctAnswer + Math.floor((Math.random() - 0.5) * 2 * variance);
+
+        // Ensure wrong answer is different and positive
+        if (wrong <= 0) wrong = Math.abs(wrong) + 1;
+        if (!usedAnswers.has(wrong)) {
+            usedAnswers.add(wrong);
+            wrongAnswers.push(wrong);
+        }
     }
 
+    return wrongAnswers;
+};
+
+// Shuffle array using Fisher-Yates algorithm
+const shuffleArray = <T,>(array: T[]): T[] => {
+    const shuffled = [...array];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled;
+};
+
+// Generate arithmetic problem based on difficulty with complex algebra
+const generateArithmeticProblem = (difficulty: Difficulty): ArithmeticProblem => {
+    let question: string;
+    let answer: number;
+
+    switch (difficulty) {
+        case 'easy': {
+            // Simple two-number operations: a + b or a - b or a × b
+            const a = Math.floor(Math.random() * 20) + 5; // 5-24
+            const b = Math.floor(Math.random() * 15) + 2; // 2-16
+            const op = Math.random();
+            if (op < 0.33) {
+                question = `${a} + ${b}`;
+                answer = a + b;
+            } else if (op < 0.66) {
+                const [large, small] = a > b ? [a, b] : [b, a];
+                question = `${large} - ${small}`;
+                answer = large - small;
+            } else {
+                const x = Math.floor(Math.random() * 9) + 2; // 2-10
+                const y = Math.floor(Math.random() * 9) + 2;
+                question = `${x} × ${y}`;
+                answer = x * y;
+            }
+            break;
+        }
+        case 'medium': {
+            // Three operations: a × b + c or a + b × c or (a + b) × c
+            const patterns = [
+                () => {
+                    const a = Math.floor(Math.random() * 10) + 2;
+                    const b = Math.floor(Math.random() * 10) + 2;
+                    const c = Math.floor(Math.random() * 20) + 5;
+                    return { q: `${a} × ${b} + ${c}`, a: a * b + c };
+                },
+                () => {
+                    const a = Math.floor(Math.random() * 30) + 10;
+                    const b = Math.floor(Math.random() * 8) + 2;
+                    const c = Math.floor(Math.random() * 8) + 2;
+                    return { q: `${a} + ${b} × ${c}`, a: a + b * c };
+                },
+                () => {
+                    const a = Math.floor(Math.random() * 15) + 5;
+                    const b = Math.floor(Math.random() * 15) + 5;
+                    const c = Math.floor(Math.random() * 6) + 2;
+                    return { q: `(${a} + ${b}) × ${c}`, a: (a + b) * c };
+                },
+                () => {
+                    const divisor = Math.floor(Math.random() * 8) + 2;
+                    const quotient = Math.floor(Math.random() * 15) + 5;
+                    const a = divisor * quotient;
+                    const c = Math.floor(Math.random() * 20) + 5;
+                    return { q: `${a} ÷ ${divisor} + ${c}`, a: quotient + c };
+                },
+            ];
+            const pattern = patterns[Math.floor(Math.random() * patterns.length)]();
+            question = pattern.q;
+            answer = pattern.a;
+            break;
+        }
+        case 'hard': {
+            // Complex algebra: 120*(4/2)+12+2, with parentheses and multiple operations
+            const patterns = [
+                () => {
+                    const base = Math.floor(Math.random() * 100) + 50; // 50-149
+                    const divTop = Math.floor(Math.random() * 6) + 2; // 2-7
+                    const divBot = Math.floor(Math.random() * 3) + 1; // 1-3
+                    const mult = divTop / divBot;
+                    const add1 = Math.floor(Math.random() * 20) + 5;
+                    const add2 = Math.floor(Math.random() * 10) + 1;
+                    return {
+                        q: `${base} × (${divTop * divBot}/${divBot}) + ${add1} + ${add2}`,
+                        a: base * (divTop) + add1 + add2
+                    };
+                },
+                () => {
+                    const a = Math.floor(Math.random() * 50) + 30;
+                    const b = Math.floor(Math.random() * 30) + 10;
+                    const c = Math.floor(Math.random() * 6) + 2;
+                    const d = Math.floor(Math.random() * 5) + 2;
+                    return { q: `(${a} + ${b}) ÷ ${c} × ${d}`, a: Math.floor((a + b) / c) * d };
+                },
+                () => {
+                    const mult = Math.floor(Math.random() * 15) + 5;
+                    const divisor = Math.floor(Math.random() * 4) + 2;
+                    const dividend = divisor * (Math.floor(Math.random() * 10) + 2);
+                    const add = Math.floor(Math.random() * 50) + 20;
+                    const sub = Math.floor(Math.random() * 15) + 5;
+                    return {
+                        q: `${mult} × (${dividend}/${divisor}) + ${add} - ${sub}`,
+                        a: mult * (dividend / divisor) + add - sub
+                    };
+                },
+                () => {
+                    const a = Math.floor(Math.random() * 8) + 2;
+                    const b = Math.floor(Math.random() * 8) + 2;
+                    const c = Math.floor(Math.random() * 20) + 10;
+                    const d = Math.floor(Math.random() * 10) + 5;
+                    return { q: `${a} × ${b} + ${c} × ${d}`, a: a * b + c * d };
+                },
+                () => {
+                    const base = Math.floor(Math.random() * 80) + 40;
+                    const mult = Math.floor(Math.random() * 5) + 2;
+                    const div = Math.floor(Math.random() * 4) + 2;
+                    const innerMult = div * (Math.floor(Math.random() * 5) + 2);
+                    const add = Math.floor(Math.random() * 30) + 10;
+                    return {
+                        q: `${base} × (${innerMult}/${div}) + ${add}`,
+                        a: base * (innerMult / div) + add
+                    };
+                },
+            ];
+            const pattern = patterns[Math.floor(Math.random() * patterns.length)]();
+            question = pattern.q;
+            answer = Math.round(pattern.a); // Ensure integer answer
+            break;
+        }
+    }
+
+    // Generate 3 wrong answers and shuffle with correct answer
+    const wrongAnswers = generateWrongAnswers(answer, 3);
+    const choices = shuffleArray([answer, ...wrongAnswers]);
+
     return {
-        question: `${a} ${operator} ${b}`,
+        question,
         answer,
+        choices,
         difficulty,
     };
 };
@@ -139,7 +249,7 @@ export default function SequenceGame() {
     // Arithmetic game state
     const [arithmeticProblems, setArithmeticProblems] = useState<ArithmeticProblem[]>([]);
     const [currentArithmeticIndex, setCurrentArithmeticIndex] = useState(0);
-    const [arithmeticInput, setArithmeticInput] = useState('');
+    const [selectedArithmeticChoice, setSelectedArithmeticChoice] = useState<number | null>(null);
     const [arithmeticError, setArithmeticError] = useState(false);
 
     // Move around state
@@ -267,27 +377,33 @@ export default function SequenceGame() {
     }, [currentStage, advanceToNextStage]);
 
     // ========== ARITHMETIC GAME ==========
-    const handleArithmeticSubmit = useCallback(() => {
+    const handleArithmeticChoice = useCallback((selectedAnswer: number) => {
         const currentProblem = arithmeticProblems[currentArithmeticIndex];
         if (!currentProblem) return;
 
-        const userAnswer = parseInt(arithmeticInput, 10);
-        if (userAnswer === currentProblem.answer) {
+        setSelectedArithmeticChoice(selectedAnswer);
+
+        if (selectedAnswer === currentProblem.answer) {
             playCorrectSound();
-            setArithmeticInput('');
             setArithmeticError(false);
 
-            if (currentArithmeticIndex >= 2) {
-                advanceToNextStage();
-            } else {
-                setCurrentArithmeticIndex(prev => prev + 1);
-            }
+            setTimeout(() => {
+                setSelectedArithmeticChoice(null);
+                if (currentArithmeticIndex >= 2) {
+                    advanceToNextStage();
+                } else {
+                    setCurrentArithmeticIndex(prev => prev + 1);
+                }
+            }, 300);
         } else {
             setArithmeticError(true);
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-            setTimeout(() => setArithmeticError(false), 500);
+            setTimeout(() => {
+                setArithmeticError(false);
+                setSelectedArithmeticChoice(null);
+            }, 500);
         }
-    }, [arithmeticInput, arithmeticProblems, currentArithmeticIndex, advanceToNextStage, playCorrectSound]);
+    }, [arithmeticProblems, currentArithmeticIndex, advanceToNextStage, playCorrectSound]);
 
     // ========== MOVE AROUND (STATIC) ==========
     useEffect(() => {
@@ -412,18 +528,34 @@ export default function SequenceGame() {
                 </View>
                 <Text style={styles.stageTitle}>Quick Math</Text>
                 <Text style={styles.problemText}>{currentProblem.question} = ?</Text>
-                <TextInput
-                    style={[styles.mathInput, arithmeticError && styles.inputError]}
-                    value={arithmeticInput}
-                    onChangeText={setArithmeticInput}
-                    keyboardType="number-pad"
-                    placeholder="Answer"
-                    placeholderTextColor={Colors.textMuted}
-                    autoFocus
-                />
-                <Pressable style={styles.submitButton} onPress={handleArithmeticSubmit}>
-                    <Text style={styles.submitButtonText}>Submit</Text>
-                </Pressable>
+                <View style={styles.choicesGrid}>
+                    {currentProblem.choices.map((choice, index) => {
+                        const isSelected = selectedArithmeticChoice === choice;
+                        const isCorrect = choice === currentProblem.answer;
+                        const showCorrect = isSelected && isCorrect;
+                        const showError = isSelected && !isCorrect && arithmeticError;
+
+                        return (
+                            <Pressable
+                                key={index}
+                                style={[
+                                    styles.choiceCard,
+                                    showCorrect && styles.choiceCardCorrect,
+                                    showError && styles.choiceCardError,
+                                ]}
+                                onPress={() => handleArithmeticChoice(choice)}
+                                disabled={selectedArithmeticChoice !== null}
+                            >
+                                <Text style={[
+                                    styles.choiceText,
+                                    (showCorrect || showError) && styles.choiceTextSelected,
+                                ]}>
+                                    {choice}
+                                </Text>
+                            </Pressable>
+                        );
+                    })}
+                </View>
                 <Text style={styles.problemProgress}>
                     Problem {currentArithmeticIndex + 1} of 3
                 </Text>
@@ -545,26 +677,28 @@ export default function SequenceGame() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: Colors.gameBackground,
+        backgroundColor: Colors.background,
     },
     header: {
         paddingHorizontal: Spacing.lg,
         paddingVertical: Spacing.md,
         alignItems: 'center',
+        borderBottomWidth: 1,
+        borderBottomColor: Colors.border,
     },
     headerTitle: {
         fontSize: FontSize.xl,
         fontFamily: FontFamily.bold,
-        color: Colors.background,
+        color: Colors.text,
     },
     progressContainer: {
         paddingHorizontal: Spacing.lg,
-        paddingBottom: Spacing.md,
+        paddingVertical: Spacing.md,
     },
     progressText: {
         fontSize: FontSize.sm,
         fontFamily: FontFamily.medium,
-        color: Colors.textMuted,
+        color: Colors.textSecondary,
         marginBottom: Spacing.xs,
         textAlign: 'center',
     },
@@ -592,7 +726,7 @@ const styles = StyleSheet.create({
     stageTitle: {
         fontSize: FontSize.xxl,
         fontFamily: FontFamily.bold,
-        color: Colors.background,
+        color: Colors.text,
         marginTop: Spacing.lg,
         marginBottom: Spacing.sm,
         textAlign: 'center',
@@ -600,7 +734,7 @@ const styles = StyleSheet.create({
     stageDescription: {
         fontSize: FontSize.md,
         fontFamily: FontFamily.regular,
-        color: Colors.textMuted,
+        color: Colors.textSecondary,
         textAlign: 'center',
         marginBottom: Spacing.xl,
     },
@@ -636,43 +770,51 @@ const styles = StyleSheet.create({
         color: Colors.background,
     },
     problemText: {
-        fontSize: FontSize.title,
+        fontSize: FontSize.xl,
         fontFamily: FontFamily.bold,
-        color: Colors.background,
+        color: Colors.text,
         marginBottom: Spacing.xl,
+        textAlign: 'center',
     },
-    mathInput: {
-        width: '80%',
+    choicesGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        justifyContent: 'center',
+        width: '100%',
+        gap: Spacing.md,
+        marginBottom: Spacing.lg,
+    },
+    choiceCard: {
+        width: '45%',
         backgroundColor: Colors.surface,
+        borderWidth: 1,
+        borderColor: Colors.border,
         borderRadius: BorderRadius.md,
-        paddingHorizontal: Spacing.lg,
-        paddingVertical: Spacing.md,
+        paddingVertical: Spacing.lg,
+        paddingHorizontal: Spacing.md,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    choiceCardCorrect: {
+        backgroundColor: Colors.success,
+        borderColor: Colors.success,
+    },
+    choiceCardError: {
+        backgroundColor: Colors.danger,
+        borderColor: Colors.danger,
+    },
+    choiceText: {
         fontSize: FontSize.xl,
         fontFamily: FontFamily.semibold,
         color: Colors.text,
-        textAlign: 'center',
-        marginBottom: Spacing.md,
     },
-    inputError: {
-        borderWidth: 2,
-        borderColor: Colors.danger,
-    },
-    submitButton: {
-        backgroundColor: Colors.accent,
-        paddingHorizontal: Spacing.xxl,
-        paddingVertical: Spacing.md,
-        borderRadius: BorderRadius.md,
-        marginBottom: Spacing.lg,
-    },
-    submitButtonText: {
-        fontSize: FontSize.lg,
-        fontFamily: FontFamily.semibold,
+    choiceTextSelected: {
         color: Colors.background,
     },
     problemProgress: {
         fontSize: FontSize.sm,
         fontFamily: FontFamily.medium,
-        color: Colors.textMuted,
+        color: Colors.textSecondary,
     },
     numbersGrid: {
         flexDirection: 'row',
@@ -684,9 +826,11 @@ const styles = StyleSheet.create({
     numberButton: {
         minWidth: 100,
         backgroundColor: Colors.surface,
+        borderWidth: 1,
+        borderColor: Colors.border,
         paddingHorizontal: Spacing.xl,
         paddingVertical: Spacing.lg,
-        borderRadius: BorderRadius.lg,
+        borderRadius: BorderRadius.md,
         alignItems: 'center',
     },
     numberButtonError: {
