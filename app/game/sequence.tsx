@@ -201,21 +201,19 @@ const generateArithmeticProblem = (difficulty: Difficulty): ArithmeticProblem =>
     };
 };
 
-// Generate pick largest problem based on difficulty
+// Generate pick largest problem based on difficulty - always 4 choices
 const generatePickLargestProblem = (difficulty: Difficulty): PickLargestProblem => {
-    let count: number, max: number;
+    let max: number;
+    const count = 4; // Always 4 choices
 
     switch (difficulty) {
         case 'easy':
-            count = 2;
             max = 100;
             break;
         case 'medium':
-            count = 3;
             max = 500;
             break;
         case 'hard':
-            count = 4;
             max = 1000;
             break;
     }
