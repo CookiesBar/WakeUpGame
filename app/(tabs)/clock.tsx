@@ -19,10 +19,8 @@ export default function ClockScreen() {
 
   const hours = time.getHours();
   const minutes = time.getMinutes();
-  const seconds = time.getSeconds();
 
   const displayHours = hours % 12 || 12;
-  const isPM = hours >= 12;
 
   const weekday = WEEKDAYS[time.getDay()];
   const month = MONTHS[time.getMonth()];
@@ -43,15 +41,7 @@ export default function ClockScreen() {
           <Text style={styles.timeText}>{formatNumber(minutes)}</Text>
         </View>
 
-        <View style={styles.secondsRow}>
-          <Text style={styles.secondsText}>{formatNumber(seconds)}</Text>
-          <Text style={styles.periodText}>{isPM ? 'PM' : 'AM'}</Text>
-        </View>
-
-        <View style={styles.dateContainer}>
-          <Text style={styles.weekdayText}>{weekday}</Text>
-          <Text style={styles.dateText}>{month} {date}</Text>
-        </View>
+        <Text style={styles.dateText}>{weekday}, {month} {date}</Text>
       </View>
     </SafeAreaView>
   );
@@ -93,35 +83,10 @@ const styles = StyleSheet.create({
     color: Colors.text,
     marginHorizontal: Spacing.xs,
   },
-  secondsRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    marginTop: Spacing.sm,
-    gap: Spacing.md,
-  },
-  secondsText: {
-    fontSize: FontSize.xxl,
-    fontFamily: FontFamily.medium,
-    color: Colors.textSecondary,
-  },
-  periodText: {
-    fontSize: FontSize.xl,
-    fontFamily: FontFamily.semibold,
-    color: Colors.textSecondary,
-  },
-  dateContainer: {
-    alignItems: 'center',
-    marginTop: Spacing.xl,
-  },
-  weekdayText: {
+  dateText: {
     fontSize: FontSize.lg,
     fontFamily: FontFamily.medium,
     color: Colors.textSecondary,
-  },
-  dateText: {
-    fontSize: FontSize.md,
-    fontFamily: FontFamily.regular,
-    color: Colors.textMuted,
-    marginTop: Spacing.xs,
+    marginTop: Spacing.md,
   },
 });

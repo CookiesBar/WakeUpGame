@@ -2,19 +2,67 @@ import { BorderRadius, Colors, FontFamily, FontSize, Spacing } from '@/constants
 import { useAlarms } from '@/contexts/AlarmContext';
 import { Alarm } from '@/utils/storage';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
-import React from 'react';
+import React, { useEffect } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Pressable,
   StyleSheet,
   Text,
-  View,
+  View
 } from 'react-native';
+import Animated, {
+  interpolateColor,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-const DAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+// Set to true to show debug button
+const DEV_MODE = __DEV__;
+
+const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+// Animated Toggle Switch
+function AnimatedSwitch({ enabled, onToggle }: { enabled: boolean; onToggle: () => void }) {
+  const translateX = useSharedValue(enabled ? 20 : 0);
+  const progress = useSharedValue(enabled ? 1 : 0);
+
+  useEffect(() => {
+    translateX.value = withSpring(enabled ? 20 : 0, {
+      damping: 15,
+      stiffness: 200,
+    });
+    progress.value = withSpring(enabled ? 1 : 0, {
+      damping: 15,
+      stiffness: 200,
+    });
+  }, [enabled]);
+
+  const knobStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: translateX.value }],
+  }));
+
+  const trackStyle = useAnimatedStyle(() => ({
+    backgroundColor: interpolateColor(
+      progress.value,
+      [0, 1],
+      [Colors.surfaceAlt, Colors.accent]
+    ),
+  }));
+
+  return (
+    <Pressable onPress={onToggle}>
+      <Animated.View style={[styles.toggle, trackStyle]}>
+        <Animated.View style={[styles.toggleKnob, knobStyle]} />
+      </Animated.View>
+    </Pressable>
+  );
+}
 
 function AlarmCard({ alarm, onToggle }: { alarm: Alarm; onToggle: () => void }) {
   const [hours, minutes] = alarm.time.split(':');
@@ -27,48 +75,46 @@ function AlarmCard({ alarm, onToggle }: { alarm: Alarm; onToggle: () => void }) 
     .filter(Boolean)
     .join(' ');
 
+  // Truncate days text to 12 characters
+  const truncatedDays = activeDays.length > 30
+    ? activeDays.substring(0, 30) + '...'
+    : activeDays;
+
   return (
     <Pressable
       style={[styles.alarmCard, !alarm.enabled && styles.alarmCardDisabled]}
       onPress={() => router.push(`/alarm/${alarm.id}`)}
     >
-      <View style={styles.alarmTimeContainer}>
-        <Text style={[styles.alarmTime, !alarm.enabled && styles.textDisabled]}>
-          {displayHour}:{minutes}
-        </Text>
-        <Text style={[styles.alarmPeriod, !alarm.enabled && styles.textDisabled]}>
-          {isPM ? 'PM' : 'AM'}
-        </Text>
-      </View>
-
-      <View style={styles.alarmInfo}>
+      <View style={styles.alarmInfoContainer}>
+        {/* Label above time */}
         {alarm.label ? (
           <Text style={[styles.alarmLabel, !alarm.enabled && styles.textDisabled]}>
             {alarm.label}
           </Text>
         ) : null}
+
+        {/* Time */}
+        <View style={styles.alarmTimeContainer}>
+          <Text style={[styles.alarmTime, !alarm.enabled && styles.textDisabled]}>
+            {displayHour}:{minutes}
+          </Text>
+          <Text style={[styles.alarmPeriod, !alarm.enabled && styles.textDisabled]}>
+            {isPM ? 'PM' : 'AM'}
+          </Text>
+        </View>
+
+        {/* Repeat days below time */}
         <View style={styles.alarmDays}>
-          {activeDays ? (
-            <Text style={[styles.daysText, !alarm.enabled && styles.textDisabled]}>
-              {activeDays}
-            </Text>
-          ) : (
-            <Text style={[styles.daysText, !alarm.enabled && styles.textDisabled]}>
-              Once
-            </Text>
-          )}
+          <Text style={[styles.daysText, !alarm.enabled && styles.textDisabled]}>
+            {truncatedDays || 'Once'}
+          </Text>
         </View>
       </View>
 
-      <Pressable
-        style={[styles.toggle, alarm.enabled && styles.toggleActive]}
-        onPress={(e) => {
-          e.stopPropagation();
-          onToggle();
-        }}
-      >
-        <View style={[styles.toggleKnob, alarm.enabled && styles.toggleKnobActive]} />
-      </Pressable>
+      <AnimatedSwitch
+        enabled={alarm.enabled}
+        onToggle={onToggle}
+      />
     </Pressable>
   );
 }
@@ -88,6 +134,24 @@ function EmptyState() {
 export default function AlarmListScreen() {
   const { alarms, loading, toggleAlarmEnabled } = useAlarms();
 
+  const handleResetOnboarding = async () => {
+    Alert.alert(
+      'Reset Onboarding',
+      'This will reset the onboarding status. The app will restart to show onboarding.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Reset',
+          style: 'destructive',
+          onPress: async () => {
+            await AsyncStorage.removeItem('hasSeenOnboarding');
+            Alert.alert('Done', 'Please restart the app to see onboarding.');
+          },
+        },
+      ]
+    );
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
@@ -101,6 +165,13 @@ export default function AlarmListScreen() {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
+        {DEV_MODE ? (
+          <Pressable onPress={handleResetOnboarding}>
+            <Ionicons name="refresh" size={24} color={Colors.textMuted} />
+          </Pressable>
+        ) : (
+          <View style={{ width: 24 }} />
+        )}
         <Text style={styles.title}>Alarm</Text>
         <Pressable
           style={styles.addButton}
@@ -179,6 +250,9 @@ const styles = StyleSheet.create({
   alarmCardDisabled: {
     backgroundColor: Colors.background,
   },
+  alarmInfoContainer: {
+    flex: 1,
+  },
   alarmTimeContainer: {
     flexDirection: 'row',
     alignItems: 'baseline',
@@ -194,20 +268,16 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     marginLeft: Spacing.xs,
   },
-  alarmInfo: {
-    flex: 1,
-    marginLeft: Spacing.lg,
-  },
   alarmLabel: {
-    fontSize: FontSize.md,
+    fontSize: FontSize.sm,
     fontFamily: FontFamily.medium,
-    color: Colors.text,
+    color: Colors.textSecondary,
     marginBottom: Spacing.xs,
   },
   alarmDays: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.sm,
+    marginTop: Spacing.xs,
   },
   daysText: {
     fontSize: FontSize.sm,
@@ -225,17 +295,11 @@ const styles = StyleSheet.create({
     padding: 3,
     justifyContent: 'center',
   },
-  toggleActive: {
-    backgroundColor: Colors.accent,
-  },
   toggleKnob: {
     width: 24,
     height: 24,
     backgroundColor: Colors.background,
     borderRadius: BorderRadius.full,
-  },
-  toggleKnobActive: {
-    alignSelf: 'flex-end',
   },
   emptyState: {
     flex: 1,

@@ -11,6 +11,7 @@ import {
     Pressable,
     StyleSheet,
     Text,
+    Vibration,
     View
 } from 'react-native';
 import ConfettiCannon from 'react-native-confetti-cannon';
@@ -239,10 +240,11 @@ export default function SequenceGame() {
     const currentStage = STAGES[currentStageIndex];
 
     // Shake game state
-    const [shakeTimeRemaining, setShakeTimeRemaining] = useState(5);
+    const [shakeTimeRemaining, setShakeTimeRemaining] = useState(20);
     const [isShaking, setIsShaking] = useState(false);
     const shakeSubscription = useRef<ReturnType<typeof Accelerometer.addListener> | null>(null);
     const lastShakeTime = useRef(0);
+    const lastShakeDetectedTime = useRef(0); // Track when last shake was detected for countdown logic
 
     // Arithmetic game state
     const [arithmeticProblems, setArithmeticProblems] = useState<ArithmeticProblem[]>([]);
@@ -251,7 +253,7 @@ export default function SequenceGame() {
     const [arithmeticError, setArithmeticError] = useState(false);
 
     // Move around state
-    const [moveAroundTime, setMoveAroundTime] = useState(5);
+    const [moveAroundTime, setMoveAroundTime] = useState(15);
 
     // Pick largest game state
     const [pickLargestProblems, setPickLargestProblems] = useState<PickLargestProblem[]>([]);
@@ -259,7 +261,7 @@ export default function SequenceGame() {
     const [pickLargestError, setPickLargestError] = useState(false);
 
     // Turn on light state
-    const [turnOnLightTime, setTurnOnLightTime] = useState(5);
+    const [turnOnLightTime, setTurnOnLightTime] = useState(15);
 
     // Confetti
     const [showConfetti, setShowConfetti] = useState(false);
@@ -268,10 +270,11 @@ export default function SequenceGame() {
     // Animation
     const progressAnim = useRef(new Animated.Value(0)).current;
 
-    // Audio for correct answers
+    // Haptic feedback for correct answers
     const playCorrectSound = useCallback(async () => {
         try {
             await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            Vibration.vibrate(100); // Short vibration pulse
         } catch (e) {
             console.log('Haptics error:', e);
         }
@@ -281,6 +284,8 @@ export default function SequenceGame() {
         try {
             await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+            // Vibration pattern: vibrate 200ms, pause 100ms, vibrate 200ms
+            Vibration.vibrate([0, 200, 100, 200]);
         } catch (e) {
             console.log('Haptics error:', e);
         }
@@ -329,8 +334,8 @@ export default function SequenceGame() {
     useEffect(() => {
         if (currentStage !== 'shake') return;
 
-        let shakeCount = 0;
         const SHAKE_THRESHOLD = 1.5;
+        const SHAKE_WINDOW_MS = 300; // Time window to consider as "still shaking"
         let timerInterval: ReturnType<typeof setInterval>;
         let isComplete = false;
 
@@ -345,7 +350,7 @@ export default function SequenceGame() {
                 const now = Date.now();
                 if (now - lastShakeTime.current > 100) {
                     lastShakeTime.current = now;
-                    shakeCount++;
+                    lastShakeDetectedTime.current = now; // Update last shake detected time
                     setIsShaking(true);
                     setTimeout(() => setIsShaking(false), 100);
                 }
@@ -356,16 +361,23 @@ export default function SequenceGame() {
         shakeSubscription.current = Accelerometer.addListener(handleMotion);
 
         timerInterval = setInterval(() => {
-            setShakeTimeRemaining(prev => {
-                if (prev <= 1) {
-                    isComplete = true;
-                    clearInterval(timerInterval);
-                    shakeSubscription.current?.remove();
-                    setTimeout(() => advanceToNextStage(), 500);
-                    return 0;
-                }
-                return prev - 1;
-            });
+            const now = Date.now();
+            const timeSinceLastShake = now - lastShakeDetectedTime.current;
+
+            // Only countdown if user is actively shaking (shook within the last SHAKE_WINDOW_MS)
+            if (timeSinceLastShake <= SHAKE_WINDOW_MS) {
+                setShakeTimeRemaining(prev => {
+                    if (prev <= 1) {
+                        isComplete = true;
+                        clearInterval(timerInterval);
+                        shakeSubscription.current?.remove();
+                        setTimeout(() => advanceToNextStage(), 500);
+                        return 0;
+                    }
+                    return prev - 1;
+                });
+            }
+            // If not shaking, timer pauses (does not decrement)
         }, 1000);
 
         return () => {
