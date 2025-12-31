@@ -1,9 +1,13 @@
 import WheelPicker from '@/components/WheelPicker';
 import { BorderRadius, Colors, FontFamily, FontSize, Spacing } from '@/constants/theme';
+import { presentPaywall } from '@/utils/revenueCat';
 import { Ionicons } from '@expo/vector-icons';
-import React, { useMemo, useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
+    ActivityIndicator,
     Dimensions,
+    Linking,
     Pressable,
     ScrollView,
     StyleSheet,
@@ -17,6 +21,48 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const DAY_SHORT = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
+// Key for storing pending demo alarm
+export const PENDING_DEMO_ALARM_KEY = '@pending_demo_alarm';
+
+// Interface for pending demo alarm data
+export interface PendingDemoAlarm {
+    hours: number;
+    minutes: number;
+    label: string;
+    days: boolean[];
+}
+
+// Save pending demo alarm settings
+export const savePendingDemoAlarm = async (data: PendingDemoAlarm): Promise<void> => {
+    try {
+        await AsyncStorage.setItem(PENDING_DEMO_ALARM_KEY, JSON.stringify(data));
+        console.log('Saved pending demo alarm:', data);
+    } catch (error) {
+        console.error('Error saving pending demo alarm:', error);
+    }
+};
+
+// Get pending demo alarm settings
+export const getPendingDemoAlarm = async (): Promise<PendingDemoAlarm | null> => {
+    try {
+        const json = await AsyncStorage.getItem(PENDING_DEMO_ALARM_KEY);
+        return json ? JSON.parse(json) : null;
+    } catch (error) {
+        console.error('Error reading pending demo alarm:', error);
+        return null;
+    }
+};
+
+// Clear pending demo alarm after creation
+export const clearPendingDemoAlarm = async (): Promise<void> => {
+    try {
+        await AsyncStorage.removeItem(PENDING_DEMO_ALARM_KEY);
+        console.log('Cleared pending demo alarm');
+    } catch (error) {
+        console.error('Error clearing pending demo alarm:', error);
+    }
+};
+
 interface OnboardingAlarmDemoProps {
     onNext: () => void;
 }
@@ -28,6 +74,37 @@ export default function OnboardingAlarmDemo({ onNext }: OnboardingAlarmDemoProps
     const [label, setLabel] = useState('Wake up');
     const [days, setDays] = useState<boolean[]>([false, true, true, true, true, true, false]);
     const [showRepeatPicker, setShowRepeatPicker] = useState(false);
+    const [isLoadingPaywall, setIsLoadingPaywall] = useState(false);
+
+    // Handle paywall presentation and completion
+    const handleGetStarted = useCallback(async () => {
+        setIsLoadingPaywall(true);
+        try {
+            // Save demo alarm settings first
+            await savePendingDemoAlarm({
+                hours,
+                minutes,
+                label,
+                days,
+            });
+
+            // Present the paywall (mandatory - no skip button)
+            const purchased = await presentPaywall();
+
+            // If user purchased, the alarm will be created in _layout.tsx
+            // when checking for pending demo alarm
+            console.log('Paywall result - purchased:', purchased);
+
+            // Proceed to main app after paywall interaction
+            onNext();
+        } catch (error) {
+            console.error('Error presenting paywall:', error);
+            // Still proceed on error to not block the user completely
+            onNext();
+        } finally {
+            setIsLoadingPaywall(false);
+        }
+    }, [onNext, hours, minutes, label, days]);
 
     // Generate wheel picker data
     const hoursData = useMemo(() =>
@@ -182,9 +259,36 @@ export default function OnboardingAlarmDemo({ onNext }: OnboardingAlarmDemoProps
 
             {/* Next Button */}
             <View style={styles.buttonContainer}>
-                <Pressable style={styles.button} onPress={onNext}>
-                    <Text style={styles.buttonText}>GET STARTED</Text>
+                <Pressable
+                    style={[styles.button, isLoadingPaywall && styles.buttonDisabled]}
+                    onPress={handleGetStarted}
+                    disabled={isLoadingPaywall}
+                >
+                    {isLoadingPaywall ? (
+                        <ActivityIndicator color={Colors.background} />
+                    ) : (
+                        <Text style={styles.buttonText}>GET STARTED</Text>
+                    )}
                 </Pressable>
+
+                {/* Legal Links */}
+                <View style={styles.legalLinks}>
+                    <Pressable
+                        onPress={() => Linking.openURL('https://resonant-stock-52e.notion.site/Wakey-Privacy-Policy-43a8162e83de4eb58b61ee67a8dddcd2?pvs=74')}
+                    >
+                        <Text style={styles.legalLinkText}>Privacy Policy</Text>
+                    </Pressable>
+                    <Text style={styles.legalSeparator}>•</Text>
+                    <Pressable
+                        onPress={() => Linking.openURL('https://resonant-stock-52e.notion.site/Wakey-Terms-of-Service-c39428cc979341029bd53c207a7cb06f')}
+                    >
+                        <Text style={styles.legalLinkText}>Terms of Service</Text>
+                    </Pressable>
+                </View>
+
+                <Text style={styles.legalDisclaimer}>
+                    By continuing, you agree to our Terms of Service and Privacy Policy
+                </Text>
             </View>
         </View>
     );
@@ -315,10 +419,38 @@ const styles = StyleSheet.create({
         borderRadius: BorderRadius.lg,
         alignItems: 'center',
     },
+    buttonDisabled: {
+        opacity: 0.7,
+    },
     buttonText: {
         fontFamily: FontFamily.semibold,
         fontSize: FontSize.md,
         color: Colors.background,
         letterSpacing: 1,
+    },
+    legalLinks: {
+        flexDirection: 'row',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginTop: Spacing.lg,
+    },
+    legalLinkText: {
+        fontSize: FontSize.sm,
+        fontFamily: FontFamily.regular,
+        color: Colors.primary,
+        textDecorationLine: 'underline',
+    },
+    legalSeparator: {
+        fontSize: FontSize.sm,
+        color: Colors.textMuted,
+        marginHorizontal: Spacing.sm,
+    },
+    legalDisclaimer: {
+        fontSize: FontSize.xs,
+        fontFamily: FontFamily.regular,
+        color: Colors.textMuted,
+        textAlign: 'center',
+        marginTop: Spacing.md,
+        lineHeight: 16,
     },
 });

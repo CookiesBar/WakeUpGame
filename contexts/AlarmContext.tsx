@@ -1,5 +1,7 @@
 // Alarm Context for state management
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, ReactNode, useCallback, useContext, useEffect, useState } from 'react';
+import { clearPendingDemoAlarm, getPendingDemoAlarm } from '../components/OnboardingAlarmDemo';
 import {
     cancelAlarmNotification,
     requestNotificationPermissions,
@@ -41,6 +43,35 @@ export const AlarmProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             await requestNotificationPermissions();
             await refreshAlarms();
             await refreshCustomSounds();
+
+            // Check if there's a pending demo alarm to create
+            const shouldCreatePendingAlarm = await AsyncStorage.getItem('@create_pending_alarm');
+            if (shouldCreatePendingAlarm === 'true') {
+                const pendingAlarm = await getPendingDemoAlarm();
+                if (pendingAlarm) {
+                    console.log('Creating alarm from demo settings:', pendingAlarm);
+                    // Convert hours and minutes to HH:MM format
+                    const time = `${String(pendingAlarm.hours).padStart(2, '0')}:${String(pendingAlarm.minutes).padStart(2, '0')}`;
+
+                    const newAlarm: Alarm = {
+                        id: generateId(),
+                        time,
+                        label: pendingAlarm.label,
+                        enabled: true,
+                        days: pendingAlarm.days,
+                        soundUri: null,
+                        createdAt: Date.now(),
+                    };
+
+                    await saveAlarm(newAlarm);
+                    await scheduleAlarmNotification(newAlarm);
+                    await clearPendingDemoAlarm();
+                    await AsyncStorage.removeItem('@create_pending_alarm');
+                    await refreshAlarms();
+                    console.log('Demo alarm created successfully:', newAlarm);
+                }
+            }
+
             setLoading(false);
         };
         init();

@@ -47,6 +47,21 @@ export default function TabLayout() {
           ),
         }}
       />
+      <Tabs.Screen
+        name="plans"
+        options={{
+          title: 'Plans',
+          tabBarIcon: ({ color, focused }) => (
+            <View style={[styles.iconContainer, focused && styles.iconContainerActive]}>
+              <Ionicons
+                name={focused ? 'diamond' : 'diamond-outline'}
+                size={24}
+                color={color}
+              />
+            </View>
+          ),
+        }}
+      />
     </Tabs>
   );
 }

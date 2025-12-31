@@ -1,4 +1,5 @@
 import { BorderRadius, Colors, FontFamily, FontSize, Spacing } from '@/constants/theme';
+import { recordAlarmCompletion } from '@/utils/rating';
 import { stopAlarmSound } from '@/utils/sounds';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -325,8 +326,10 @@ export default function SequenceGame() {
     }, [playStageCompleteSound]);
 
     // Complete all games
-    const handleComplete = useCallback(() => {
+    const handleComplete = useCallback(async () => {
         stopAlarmSound();
+        // Record completion for rating dialog
+        await recordAlarmCompletion();
         router.replace('/');
     }, []);
 

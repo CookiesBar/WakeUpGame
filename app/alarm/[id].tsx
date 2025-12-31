@@ -131,8 +131,9 @@ export default function AlarmEditScreen() {
             setLabel(alarm.label);
             setDays(alarm.days);
 
-            // Load sound - now uses soundId (could be bundled ID or custom URI)
-            if (alarm.soundUri) {
+            // Load sound - but only if we're NOT coming back from sound selection screen
+            // If routeSoundId is present, it means user just selected a sound, so don't overwrite
+            if (alarm.soundUri && !routeSoundId) {
                 setSoundId(alarm.soundUri);
                 setSoundName(getSoundName(alarm.soundUri));
             }

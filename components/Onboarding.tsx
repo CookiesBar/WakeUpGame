@@ -61,6 +61,12 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
     const scale = useSharedValue(1);
 
     const animateToNext = useCallback((nextIndex: number, goToDemo: boolean = false) => {
+        if (goToDemo) {
+            // Instant transition to demo page - no animation to avoid stutter
+            setCurrentIndex(REGULAR_PAGES.length);
+            return;
+        }
+
         setIsAnimating(true);
 
         // Phase 1: Fade out + slide left slightly
@@ -70,11 +76,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
 
         // After fade out, update content + fade in
         setTimeout(() => {
-            if (goToDemo) {
-                setCurrentIndex(REGULAR_PAGES.length);
-            } else {
-                setCurrentIndex(nextIndex);
-            }
+            setCurrentIndex(nextIndex);
 
             // Reset to right side
             translateX.value = 30;
@@ -184,6 +186,7 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
         paddingHorizontal: Spacing.lg,
+        paddingTop: Spacing.xl,
     },
     demoContainer: {
         flex: 1,
@@ -191,15 +194,16 @@ const styles = StyleSheet.create({
     imageContainer: {
         justifyContent: 'center',
         alignItems: 'center',
-        marginBottom: Spacing.xl,
+        flex: 1,
+        maxHeight: SCREEN_WIDTH * 0.55,
     },
     image: {
-        width: SCREEN_WIDTH * 0.7,
-        height: SCREEN_WIDTH * 0.7,
+        width: SCREEN_WIDTH * 0.55,
+        height: SCREEN_WIDTH * 0.55,
     },
     imagePlaceholder: {
-        width: SCREEN_WIDTH * 0.5,
-        height: SCREEN_WIDTH * 0.5,
+        width: SCREEN_WIDTH * 0.4,
+        height: SCREEN_WIDTH * 0.4,
         borderRadius: BorderRadius.xl,
         backgroundColor: Colors.surfaceAlt,
         justifyContent: 'center',
@@ -208,17 +212,18 @@ const styles = StyleSheet.create({
     textContainer: {
         alignItems: 'center',
         paddingHorizontal: Spacing.md,
+        marginTop: Spacing.lg,
     },
     title: {
         fontFamily: FontFamily.bold,
-        fontSize: 36, // Reduced 25% from 48px
+        fontSize: 28, // Smaller to prevent overlap
         color: Colors.accent,
         textAlign: 'center',
-        marginBottom: Spacing.md,
+        marginBottom: Spacing.sm,
     },
     description: {
         fontFamily: FontFamily.regular,
-        fontSize: FontSize.xl, // 24px (reduced 25% from 32px)
+        fontSize: FontSize.lg, // 18px
         color: Colors.textSecondary,
         textAlign: 'center',
         lineHeight: 32,

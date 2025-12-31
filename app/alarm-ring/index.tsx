@@ -71,17 +71,6 @@ export default function AlarmRingScreen() {
         };
     }, [pulseAnim, glowAnim]);
 
-    // Get current time for display
-    const getCurrentTime = () => {
-        if (time) return time;
-        const now = new Date();
-        const hours = now.getHours();
-        const minutes = now.getMinutes();
-        const ampm = hours >= 12 ? 'PM' : 'AM';
-        const displayHours = hours % 12 || 12;
-        const displayMinutes = minutes.toString().padStart(2, '0');
-        return `${displayHours}:${displayMinutes} ${ampm}`;
-    };
 
     const handleStop = async () => {
         // Cancel any remaining backup notifications for this alarm
@@ -125,19 +114,13 @@ export default function AlarmRingScreen() {
                 {/* ALARM text */}
                 <Text style={styles.alarmText}>ALARM</Text>
 
-                {/* Time display */}
-                <Text style={styles.timeText}>{getCurrentTime()}</Text>
+                {/* Alarm time */}
+                {time && <Text style={styles.timeText}>{time}</Text>}
 
                 {/* Label */}
                 {label && label !== 'undefined' && (
                     <Text style={styles.labelText}>{label}</Text>
                 )}
-
-                {/* Sound indicator */}
-                <View style={styles.soundIndicator}>
-                    <Ionicons name="volume-high" size={20} color={Colors.textSecondary} />
-                    <Text style={styles.soundText}>Playing...</Text>
-                </View>
             </View>
 
             {/* Stop button */}
@@ -146,8 +129,7 @@ export default function AlarmRingScreen() {
                     style={styles.stopButton}
                     onPress={handleStop}
                 >
-                    <Ionicons name="close" size={32} color={Colors.background} />
-                    <Text style={styles.stopButtonText}>STOP</Text>
+                    <Text style={styles.stopButtonText}>WAKE UP NOW</Text>
                 </Pressable>
                 <Text style={styles.hintText}>Complete challenges to dismiss</Text>
             </View>
@@ -199,7 +181,7 @@ const styles = StyleSheet.create({
         marginBottom: Spacing.sm,
     },
     timeText: {
-        fontSize: FontSize.clock,
+        fontSize: 48,
         fontFamily: FontFamily.bold,
         color: Colors.text,
         marginBottom: Spacing.sm,
@@ -209,17 +191,6 @@ const styles = StyleSheet.create({
         fontFamily: FontFamily.medium,
         color: Colors.textSecondary,
         marginBottom: Spacing.lg,
-    },
-    soundIndicator: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: Spacing.xs,
-        marginTop: Spacing.md,
-    },
-    soundText: {
-        fontSize: FontSize.sm,
-        fontFamily: FontFamily.regular,
-        color: Colors.textSecondary,
     },
     buttonContainer: {
         paddingHorizontal: Spacing.xl,

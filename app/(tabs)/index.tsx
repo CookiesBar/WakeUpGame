@@ -1,10 +1,11 @@
 import { BorderRadius, Colors, FontFamily, FontSize, Spacing } from '@/constants/theme';
 import { useAlarms } from '@/contexts/AlarmContext';
+import { checkAndShowRating } from '@/utils/rating';
 import { Alarm } from '@/utils/storage';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { router } from 'expo-router';
-import React, { useEffect } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import React, { useCallback, useEffect } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -133,6 +134,13 @@ function EmptyState() {
 
 export default function AlarmListScreen() {
   const { alarms, loading, toggleAlarmEnabled } = useAlarms();
+
+  // Check and show rating dialog when screen is focused
+  useFocusEffect(
+    useCallback(() => {
+      checkAndShowRating();
+    }, [])
+  );
 
   const handleResetOnboarding = async () => {
     Alert.alert(

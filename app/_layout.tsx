@@ -17,8 +17,10 @@ import 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import Onboarding from '@/components/Onboarding';
+import { getPendingDemoAlarm } from '@/components/OnboardingAlarmDemo';
 import { Colors } from '@/constants/theme';
 import { AlarmProvider } from '@/contexts/AlarmContext';
+import { checkPremiumStatus, configureRevenueCat, presentPaywall } from '@/utils/revenueCat';
 import { initializeAudio, playAlarmSound } from '@/utils/sounds';
 
 export {
@@ -63,6 +65,7 @@ export default function RootLayout() {
 
   const [isOnboardingComplete, setIsOnboardingComplete] = useState<boolean | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [isCheckingPremium, setIsCheckingPremium] = useState(false);
   const notificationListener = useRef<Notifications.EventSubscription>(null);
   const responseListener = useRef<Notifications.EventSubscription>(null);
   const handledNotificationIds = useRef<Set<string>>(new Set());
@@ -105,10 +108,44 @@ export default function RootLayout() {
       }
     };
 
+    const checkAndShowPaywallIfNeeded = async (onboardingComplete: boolean) => {
+      // Only check premium for users who have completed onboarding
+      if (!onboardingComplete) return;
+
+      try {
+        setIsCheckingPremium(true);
+        await configureRevenueCat();
+
+        const isPremium = await checkPremiumStatus();
+        console.log('Premium status on app open:', isPremium);
+
+        if (!isPremium) {
+          console.log('User is not premium, showing hard paywall');
+          // Show the hard paywall - user must subscribe to continue
+          const result = await presentPaywall();
+          console.log('Paywall result:', result);
+          // If user didn't purchase, keep showing paywall (by calling again)
+          if (!result) {
+            // User closed paywall without purchasing - show it again
+            // This creates a loop until user subscribes
+            while (!(await checkPremiumStatus())) {
+              console.log('User still not premium, showing paywall again');
+              await presentPaywall();
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error checking premium status:', error);
+      } finally {
+        setIsCheckingPremium(false);
+      }
+    };
+
     if (fontsLoaded) {
-      checkOnboarding().then(() => {
+      checkOnboarding().then((isComplete) => {
         SplashScreen.hideAsync();
         initializeAudio();
+        checkAndShowPaywallIfNeeded(isComplete);
       });
     }
   }, [fontsLoaded]);
@@ -149,6 +186,18 @@ export default function RootLayout() {
     try {
       await AsyncStorage.setItem(ONBOARDING_COMPLETE_KEY, 'true');
       console.log('Onboarding complete, hiding overlay');
+
+      // Check if user became premium and create the demo alarm
+      const isPremium = await checkPremiumStatus();
+      if (isPremium) {
+        const pendingAlarm = await getPendingDemoAlarm();
+        if (pendingAlarm) {
+          console.log('User is premium, will create alarm from demo settings');
+          // Store the pending alarm flag for AlarmContext to pick up
+          await AsyncStorage.setItem('@create_pending_alarm', 'true');
+        }
+      }
+
       setShowOnboarding(false);
       setIsOnboardingComplete(true);
     } catch (error) {
@@ -184,7 +233,19 @@ export default function RootLayout() {
             options={{
               presentation: 'card',
               animation: 'slide_from_bottom',
+              animationDuration: 200, // Faster animation
               headerShown: false,
+            }}
+          />
+          <Stack.Screen
+            name="alarm/sounds"
+            options={{
+              presentation: 'card',
+              animation: 'slide_from_right',
+              animationDuration: 250,
+              headerShown: false,
+              gestureEnabled: true,
+              gestureDirection: 'horizontal',
             }}
           />
           <Stack.Screen
