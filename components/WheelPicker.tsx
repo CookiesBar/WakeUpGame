@@ -1,229 +1,117 @@
+import { useCallback, useEffect, useRef } from 'react';
+import {
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { Colors, FontFamily } from '@/constants/theme';
-import React, { useCallback, useEffect, useState } from 'react';
-import { StyleSheet, Text, View, ViewStyle } from 'react-native';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, {
-    runOnJS,
-    useAnimatedStyle,
-    useSharedValue,
-    withSpring,
-    withTiming,
-} from 'react-native-reanimated';
 
 interface WheelPickerProps {
-    data: string[];
-    selectedIndex: number;
-    onIndexChange: (index: number) => void;
-    style?: ViewStyle;
-    infinite?: boolean;
-    itemHeight?: number;
-    visibleItems?: number;
+  items: string[];
+  selectedIndex: number;
+  onChange: (index: number) => void;
+  itemHeight?: number;
+  visibleCount?: number;
+  width?: number;
+  /** Infinite looping scroll (hours / minutes). */
+  loop?: boolean;
 }
 
-const DEFAULT_ITEM_HEIGHT = 56;
-const DEFAULT_VISIBLE_ITEMS = 5;
-
+/**
+ * Snapping wheel picker. With `loop`, the item list is repeated across several
+ * copies and, after every settle, we silently recenter to the middle copy so it
+ * scrolls endlessly. Initial centering happens on the first content-size layout
+ * (scrolling before the content is measured is a no-op — that was the old bug).
+ */
 export default function WheelPicker({
-    data,
-    selectedIndex,
-    onIndexChange,
-    style,
-    infinite = true,
-    itemHeight = DEFAULT_ITEM_HEIGHT,
-    visibleItems = DEFAULT_VISIBLE_ITEMS,
+  items,
+  selectedIndex,
+  onChange,
+  itemHeight = 44,
+  visibleCount = 5,
+  width = 70,
+  loop = false,
 }: WheelPickerProps) {
-    const translateY = useSharedValue(0);
-    const lastTranslateY = useSharedValue(0);
-    const [visibleSelectedIndex, setVisibleSelectedIndex] = useState(selectedIndex);
-    const containerHeight = itemHeight * visibleItems;
-    const centerOffset = (visibleItems - 1) / 2 * itemHeight;
+  const scrollRef = useRef<ScrollView>(null);
+  const L = items.length;
+  const copies = loop ? 5 : 1;
+  const base = loop ? L * Math.floor(copies / 2) : 0;
+  const data = loop ? Array.from({ length: copies }, () => items).flat() : items;
+  const pad = (itemHeight * (visibleCount - 1)) / 2;
 
-    const dataLength = data.length;
+  const didInit = useRef(false);
+  const lastEmitted = useRef(selectedIndex);
 
-    // For infinite scroll, only use 3 repetitions (much faster!)
-    const repetitions = infinite ? 3 : 1;
-    const middleRepetition = infinite ? 1 : 0;
+  const centerTo = useCallback(
+    (real: number, animated = false) => {
+      scrollRef.current?.scrollTo({ y: (base + real) * itemHeight, animated });
+    },
+    [base, itemHeight]
+  );
 
-    // Normalize index to data range
-    const normalizeIndex = useCallback((index: number): number => {
-        if (!infinite || dataLength === 0) return Math.max(0, Math.min(dataLength - 1, index));
-        return ((index % dataLength) + dataLength) % dataLength;
-    }, [infinite, dataLength]);
-
-    // Initialize and update position when selectedIndex changes
-    useEffect(() => {
-        const targetVirtualIndex = infinite
-            ? middleRepetition * dataLength + selectedIndex
-            : selectedIndex;
-        translateY.value = withTiming(-targetVirtualIndex * itemHeight, { duration: 100 });
-        setVisibleSelectedIndex(selectedIndex);
-    }, [selectedIndex, infinite, dataLength, middleRepetition, itemHeight]);
-
-    // Update visible selected index based on scroll position
-    const updateVisibleSelection = useCallback((virtualIndex: number) => {
-        const normalized = normalizeIndex(virtualIndex);
-        setVisibleSelectedIndex(normalized);
-    }, [normalizeIndex]);
-
-    const recenterIfNeeded = useCallback((currentVirtualIndex: number) => {
-        if (!infinite) return;
-
-        // If we've scrolled too far from middle, reset position
-        const normalizedIndex = normalizeIndex(currentVirtualIndex);
-        const middleIndex = middleRepetition * dataLength + normalizedIndex;
-
-        if (currentVirtualIndex < dataLength / 2 || currentVirtualIndex > dataLength * 2.5) {
-            translateY.value = -middleIndex * itemHeight;
-        }
-    }, [infinite, dataLength, middleRepetition, itemHeight, normalizeIndex]);
-
-    const snapToIndex = useCallback((velocity: number) => {
-        'worklet';
-        let currentIndex = Math.round(-translateY.value / itemHeight);
-
-        // Add momentum effect
-        if (Math.abs(velocity) > 200) {
-            const momentumItems = Math.round(velocity / 800);
-            currentIndex = currentIndex - momentumItems;
-        }
-
-        if (!infinite) {
-            currentIndex = Math.max(0, Math.min(dataLength - 1, currentIndex));
-        }
-
-        translateY.value = withSpring(-currentIndex * itemHeight, {
-            damping: 20,
-            stiffness: 150,
-            mass: 0.5,
-        });
-
-        // Update visible selection and notify parent
-        runOnJS(updateVisibleSelection)(currentIndex);
-
-        const normalizedIndex = infinite && dataLength > 0
-            ? ((currentIndex % dataLength) + dataLength) % dataLength
-            : currentIndex;
-
-        runOnJS(onIndexChange)(normalizedIndex);
-
-        // Recenter after animation
-        if (infinite) {
-            runOnJS(recenterIfNeeded)(currentIndex);
-        }
-    }, [dataLength, infinite, itemHeight, onIndexChange, updateVisibleSelection, recenterIfNeeded]);
-
-    // Update visible selection during drag
-    const updateSelectionDuringDrag = useCallback(() => {
-        'worklet';
-        const currentIndex = Math.round(-translateY.value / itemHeight);
-        runOnJS(updateVisibleSelection)(currentIndex);
-    }, [itemHeight, updateVisibleSelection]);
-
-    const panGesture = Gesture.Pan()
-        .onStart(() => {
-            lastTranslateY.value = translateY.value;
-        })
-        .onUpdate((event) => {
-            let newTranslateY = lastTranslateY.value + event.translationY;
-
-            if (!infinite) {
-                // Add resistance at edges
-                const minTranslateY = -(dataLength - 1) * itemHeight;
-                const maxTranslateY = 0;
-
-                if (newTranslateY > maxTranslateY) {
-                    newTranslateY = maxTranslateY + (newTranslateY - maxTranslateY) * 0.3;
-                } else if (newTranslateY < minTranslateY) {
-                    newTranslateY = minTranslateY + (newTranslateY - minTranslateY) * 0.3;
-                }
-            }
-
-            translateY.value = newTranslateY;
-            updateSelectionDuringDrag();
-        })
-        .onEnd((event) => {
-            snapToIndex(event.velocityY);
-        });
-
-    const animatedStyle = useAnimatedStyle(() => ({
-        transform: [{ translateY: translateY.value + centerOffset }],
-    }));
-
-    // Build items for rendering
-    const items = [];
-    for (let rep = 0; rep < repetitions; rep++) {
-        for (let i = 0; i < dataLength; i++) {
-            const virtualIndex = rep * dataLength + i;
-            // Check if this item's data index matches the currently visible selected index
-            const isSelected = i === visibleSelectedIndex;
-
-            items.push(
-                <View key={`${rep}-${i}`} style={[styles.item, { height: itemHeight }]}>
-                    <Text style={[
-                        styles.itemText,
-                        isSelected && styles.selectedItemText,
-                    ]}>
-                        {data[i]}
-                    </Text>
-                </View>
-            );
-        }
+  // Center once the content has actually been laid out.
+  const handleContentSize = useCallback(() => {
+    if (!didInit.current) {
+      didInit.current = true;
+      centerTo(selectedIndex);
     }
+  }, [centerTo, selectedIndex]);
 
-    return (
-        <View style={[styles.container, { height: containerHeight }, style]}>
-            <GestureDetector gesture={panGesture}>
-                <Animated.View style={[styles.wheel, animatedStyle]}>
-                    {items}
-                </Animated.View>
-            </GestureDetector>
+  // React to external (programmatic) selection changes, e.g. loading an alarm.
+  useEffect(() => {
+    if (!didInit.current) return;
+    if (selectedIndex === lastEmitted.current) return; // our own scroll
+    centerTo(selectedIndex);
+  }, [selectedIndex, centerTo]);
 
-            {/* Selection indicator */}
-            <View
-                style={[
-                    styles.selectionIndicator,
-                    {
-                        top: centerOffset,
-                        height: itemHeight,
-                    }
-                ]}
-                pointerEvents="none"
-            />
-        </View>
-    );
+  const settle = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const y = e.nativeEvent.contentOffset.y;
+      const raw = Math.round(y / itemHeight);
+      const real = ((raw % L) + L) % L;
+      lastEmitted.current = real;
+      if (real !== selectedIndex) onChange(real);
+      if (loop) centerTo(real); // invisible jump back to the middle copy
+    },
+    [L, itemHeight, onChange, selectedIndex, loop, centerTo]
+  );
+
+  return (
+    <View style={[styles.container, { height: itemHeight * visibleCount, width }]}>
+      <ScrollView
+        ref={scrollRef}
+        showsVerticalScrollIndicator={false}
+        snapToInterval={itemHeight}
+        disableIntervalMomentum
+        decelerationRate="fast"
+        nestedScrollEnabled
+        onContentSizeChange={handleContentSize}
+        onMomentumScrollEnd={settle}
+        onScrollEndDrag={settle}
+        contentContainerStyle={{ paddingVertical: pad }}
+      >
+        {data.map((item, index) => {
+          const active = index % L === selectedIndex;
+          return (
+            <View key={`${item}-${index}`} style={[styles.item, { height: itemHeight }]}>
+              <Text style={[styles.itemText, active ? styles.active : styles.inactive]}>
+                {item}
+              </Text>
+            </View>
+          );
+        })}
+      </ScrollView>
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
-    container: {
-        overflow: 'hidden',
-        width: 100,
-    },
-    wheel: {
-        position: 'absolute',
-        left: 0,
-        right: 0,
-    },
-    item: {
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    itemText: {
-        fontSize: 28,
-        fontFamily: FontFamily.medium,
-        color: Colors.textMuted,
-    },
-    selectedItemText: {
-        fontFamily: FontFamily.bold,
-        color: '#000000',
-        fontSize: 32,
-    },
-    selectionIndicator: {
-        position: 'absolute',
-        left: 0,
-        right: 0,
-        borderTopWidth: 1,
-        borderBottomWidth: 1,
-        borderColor: Colors.border,
-        backgroundColor: 'transparent',
-    },
+  container: { overflow: 'hidden' },
+  item: { alignItems: 'center', justifyContent: 'center' },
+  itemText: { fontFamily: FontFamily.display, textAlign: 'center' },
+  active: { fontSize: 30, color: Colors.ink900, fontFamily: FontFamily.displayBold },
+  inactive: { fontSize: 24, color: Colors.ink400 },
 });

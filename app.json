@@ -2,24 +2,18 @@
   "expo": {
     "name": "Wake Up Game",
     "slug": "wake-up-game",
-    "version": "1.0.0",
+    "version": "2.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "wakeupgame",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
-    "splash": {
-      "image": "./assets/images/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#FFFFFF"
-    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.wakeupgame.app",
       "infoPlist": {
         "UIBackgroundModes": [
           "audio",
-          "fetch",
           "remote-notification"
         ],
         "ITSAppUsesNonExemptEncryption": false
@@ -39,9 +33,7 @@
         "POST_NOTIFICATIONS",
         "VIBRATE",
         "WAKE_LOCK",
-        "RECEIVE_BOOT_COMPLETED",
-        "android.permission.RECORD_AUDIO",
-        "android.permission.MODIFY_AUDIO_SETTINGS"
+        "RECEIVE_BOOT_COMPLETED"
       ]
     },
     "web": {
@@ -51,6 +43,18 @@
     },
     "plugins": [
       "expo-router",
+      "expo-audio",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/splash-icon.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#FFFFFF"
+        }
+      ],
+      "expo-status-bar",
+      "expo-font",
+      "expo-web-browser",
       [
         "expo-notifications",
         {
@@ -64,8 +68,7 @@
           ]
         }
       ],
-      "expo-av",
-      "expo-document-picker"
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true

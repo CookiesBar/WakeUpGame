@@ -1,90 +1,157 @@
-// Theme constants for Wake Up Game - Corporate UI Style
-// Light theme, no drop shadows, Google Inter font
+/**
+ * Wakey design system — ported from the Claude Design UI kit.
+ * Brand blue #0063F3, accent yellow #FFBC00, purple support, cool blue-tinted
+ * neutrals. Display font Fredoka, body font Nunito. Chunky, rounded, glassy.
+ */
 
 export const Colors = {
-  // Primary colors
-  primary: '#1A1A2E',      // Deep navy for headers/text
-  secondary: '#4A5568',    // Muted gray for secondary text
-  accent: '#3B82F6',       // Clean blue accent
+  // Brand ramps
+  blue50: '#E8F1FF',
+  blue100: '#CFE0FF',
+  blue200: '#A6C6FF',
+  blue300: '#6FA2FF',
+  blue400: '#3B82FF',
+  blue500: '#0063F3', // primary
+  blue600: '#0052CC',
+  blue700: '#0041A3',
+  blue800: '#00337F',
 
-  // Background colors
-  background: '#FFFFFF',   // Pure white background
-  surface: '#F8FAFC',      // Slightly off-white for cards
-  surfaceAlt: '#F1F5F9',   // Alternative surface
+  yellow100: '#FFEDB3',
+  yellow400: '#FFC933',
+  yellow500: '#FFBC00', // accent
+  yellow700: '#B88700',
 
-  // Text colors
-  text: '#1A1A2E',         // Primary text
-  textSecondary: '#64748B', // Secondary text
-  textMuted: '#94A3B8',    // Muted/disabled text
+  purple100: '#EDE7FF',
+  purple400: '#A78BEB',
+  purple500: '#8B6FE0',
+  purple600: '#7256C7',
 
-  // UI elements
-  border: '#E2E8F0',       // Subtle borders
-  divider: '#F1F5F9',      // Dividers
+  green500: '#2FC66B',
+  green600: '#23A657',
+  red500: '#FF5A5F',
+  red600: '#E3474C',
+  orange500: '#FF8A3D',
 
-  // Status colors
-  success: '#10B981',      // Green for on/active
-  danger: '#EF4444',       // Red for delete/danger
-  warning: '#F59E0B',      // Orange for warnings
+  // Cool neutrals
+  ink900: '#0B1B3B', // headings
+  ink700: '#2A3A5C', // body
+  ink500: '#5A6B8C', // secondary
+  ink400: '#8A98B5', // muted / placeholder
+  ink200: '#CAD4E6', // hairline
+  ink100: '#E6ECF5',
+  paper: '#F4F8FF', // bg top
+  paper2: '#E8F1FF', // bg bottom
+  white: '#FFFFFF',
 
-  // Game colors
-  gameBackground: '#0F172A', // Dark background for games
-  snake: '#10B981',         // Snake color
-  fruit: '#EF4444',         // Fruit color
-  bomb: '#1F2937',          // Bomb color
-  dino: '#374151',          // Dino color
-  ground: '#64748B',        // Ground color
-  cactus: '#059669',        // Cactus color
-};
+  // Semantic aliases
+  primary: '#0063F3',
+  primaryPress: '#0041A3',
+  accent: '#FFBC00',
+  textHeading: '#0B1B3B',
+  textBody: '#2A3A5C',
+  textMuted: '#5A6B8C',
+  textFaint: '#8A98B5',
+  surfaceCard: '#FFFFFF',
+  borderHairline: '#CAD4E6',
+  success: '#2FC66B',
+  danger: '#FF5A5F',
+  warning: '#FF8A3D',
+  onBrand: '#FFFFFF',
+  onAccent: '#0B1B3B',
+
+  // Glass (approximated for RN: translucent white, no native blur)
+  glassBg: 'rgba(255,255,255,0.62)',
+  glassBorder: 'rgba(255,255,255,0.7)',
+
+  // --- Back-compat aliases for screens not yet re-skinned (editor/ring/game) ---
+  background: '#F4F8FF',
+  surface: '#FFFFFF',
+  surfaceAlt: '#E8F1FF',
+  border: '#CAD4E6',
+  text: '#0B1B3B',
+  textSecondary: '#5A6B8C',
+  accentSoft: '#CFE0FF',
+} as const;
+
+/** Sky-wash app background gradient stops (top -> bottom). */
+export const BgGradient = ['#F4F8FF', '#E8F1FF'] as const;
 
 export const Spacing = {
   xs: 4,
   sm: 8,
-  md: 16,
-  lg: 24,
-  xl: 32,
-  xxl: 48,
-};
+  md: 12,
+  lg: 16,
+  xl: 20,
+  xxl: 24,
+  '3xl': 32,
+  '4xl': 40,
+  '5xl': 48,
+} as const;
 
 export const FontSize = {
   xs: 12,
   sm: 14,
   md: 16,
-  lg: 16,
-  xl: 24,
-  xxl: 32,
-  title: 48,
+  lg: 18,
+  h3: 20,
+  h2: 26,
+  h1: 34,
+  display: 56,
   clock: 72,
-};
+  // Back-compat aliases
+  xl: 22,
+  xxl: 28,
+  title: 40,
+} as const;
 
 export const FontFamily = {
-  regular: 'Inter_400Regular',
-  medium: 'Inter_500Medium',
-  semibold: 'Inter_600SemiBold',
-  bold: 'Inter_700Bold',
-};
+  // Display — Fredoka
+  display: 'Fredoka_600SemiBold',
+  displayMedium: 'Fredoka_500Medium',
+  displayBold: 'Fredoka_700Bold',
+  // Body — Nunito
+  body: 'Nunito_400Regular',
+  bodyMedium: 'Nunito_600SemiBold',
+  bodyBold: 'Nunito_700Bold',
+  bodyBlack: 'Nunito_800ExtraBold',
+  // Back-compat aliases (editor/ring/game)
+  regular: 'Nunito_400Regular',
+  medium: 'Nunito_600SemiBold',
+  semibold: 'Nunito_600SemiBold',
+  bold: 'Nunito_700Bold',
+} as const;
 
 export const BorderRadius = {
-  sm: 8,
-  md: 12,
-  lg: 16,
-  xl: 24,
-  full: 9999,
-};
+  sm: 10,
+  md: 16,
+  lg: 22,
+  xl: 30,
+  '2xl': 40,
+  pill: 999,
+  full: 999,
+} as const;
 
-// No drop shadows - use borders instead
-export const Elevation = {
-  none: {},
-  subtle: {
-    borderWidth: 1,
-    borderColor: Colors.border,
+/** Soft, floaty shadows (iOS shadow* + Android elevation). */
+export const Shadow = {
+  sm: {
+    shadowColor: '#0B1B3B',
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
-};
-
-export default {
-  Colors,
-  Spacing,
-  FontSize,
-  FontFamily,
-  BorderRadius,
-  Elevation,
-};
+  md: {
+    shadowColor: '#0B1B3B',
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 5,
+  },
+  blue: {
+    shadowColor: '#0063F3',
+    shadowOpacity: 0.3,
+    shadowRadius: 28,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 8,
+  },
+} as const;

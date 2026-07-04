@@ -1,113 +1,72 @@
-// Storage utilities for alarm data persistence
+/**
+ * AsyncStorage persistence for alarms.
+ * Minimal-core rebuild: bundled sounds only (no custom-sound import).
+ */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const ALARMS_KEY = '@wake_up_game_alarms';
-const CUSTOM_SOUNDS_KEY = '@wake_up_game_custom_sounds';
+const ALARMS_KEY = '@wakeup_alarms';
+
+/** 0 = Sunday ... 6 = Saturday. Empty array = one-time (no repeat). */
+export type Weekday = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
 export interface Alarm {
-    id: string;
-    time: string; // HH:MM format
-    label: string;
-    enabled: boolean;
-    days: boolean[]; // [Sun, Mon, Tue, Wed, Thu, Fri, Sat]
-    soundUri: string | null; // null = default sound
-    createdAt: number;
+  id: string;
+  /** 24h "HH:MM" */
+  time: string;
+  label: string;
+  enabled: boolean;
+  days: Weekday[];
+  /** Bundled sound id (see constants/sounds). null = default. */
+  soundId: string | null;
+  createdAt: number;
 }
 
-export interface CustomSound {
-    id: string;
-    name: string;
-    uri: string;
+export function generateId(): string {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-// Generate unique ID
-export const generateId = (): string => {
-    return Date.now().toString(36) + Math.random().toString(36).substr(2);
-};
+export async function getAlarms(): Promise<Alarm[]> {
+  try {
+    const raw = await AsyncStorage.getItem(ALARMS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as Alarm[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    console.error('getAlarms failed:', err);
+    return [];
+  }
+}
 
-// Alarm CRUD operations
-export const getAlarms = async (): Promise<Alarm[]> => {
-    try {
-        const json = await AsyncStorage.getItem(ALARMS_KEY);
-        return json ? JSON.parse(json) : [];
-    } catch (error) {
-        console.error('Error reading alarms:', error);
-        return [];
-    }
-};
+async function writeAlarms(alarms: Alarm[]): Promise<void> {
+  await AsyncStorage.setItem(ALARMS_KEY, JSON.stringify(alarms));
+}
 
-export const saveAlarm = async (alarm: Alarm): Promise<void> => {
-    try {
-        const alarms = await getAlarms();
-        const index = alarms.findIndex(a => a.id === alarm.id);
-        if (index >= 0) {
-            alarms[index] = alarm;
-        } else {
-            alarms.push(alarm);
-        }
-        await AsyncStorage.setItem(ALARMS_KEY, JSON.stringify(alarms));
-    } catch (error) {
-        console.error('Error saving alarm:', error);
-        throw error;
-    }
-};
+export async function saveAlarm(alarm: Alarm): Promise<void> {
+  const alarms = await getAlarms();
+  const idx = alarms.findIndex((a) => a.id === alarm.id);
+  if (idx >= 0) {
+    alarms[idx] = alarm;
+  } else {
+    alarms.push(alarm);
+  }
+  await writeAlarms(alarms);
+}
 
-export const deleteAlarm = async (id: string): Promise<void> => {
-    try {
-        const alarms = await getAlarms();
-        const filtered = alarms.filter(a => a.id !== id);
-        await AsyncStorage.setItem(ALARMS_KEY, JSON.stringify(filtered));
-    } catch (error) {
-        console.error('Error deleting alarm:', error);
-        throw error;
-    }
-};
+export async function deleteAlarm(id: string): Promise<void> {
+  const alarms = await getAlarms();
+  await writeAlarms(alarms.filter((a) => a.id !== id));
+}
 
-export const toggleAlarm = async (id: string): Promise<Alarm | null> => {
-    try {
-        const alarms = await getAlarms();
-        const alarm = alarms.find(a => a.id === id);
-        if (alarm) {
-            alarm.enabled = !alarm.enabled;
-            await AsyncStorage.setItem(ALARMS_KEY, JSON.stringify(alarms));
-            return alarm;
-        }
-        return null;
-    } catch (error) {
-        console.error('Error toggling alarm:', error);
-        throw error;
-    }
-};
+export async function getAlarm(id: string): Promise<Alarm | undefined> {
+  const alarms = await getAlarms();
+  return alarms.find((a) => a.id === id);
+}
 
-// Custom sounds operations
-export const getCustomSounds = async (): Promise<CustomSound[]> => {
-    try {
-        const json = await AsyncStorage.getItem(CUSTOM_SOUNDS_KEY);
-        return json ? JSON.parse(json) : [];
-    } catch (error) {
-        console.error('Error reading custom sounds:', error);
-        return [];
-    }
-};
-
-export const saveCustomSound = async (sound: CustomSound): Promise<void> => {
-    try {
-        const sounds = await getCustomSounds();
-        sounds.push(sound);
-        await AsyncStorage.setItem(CUSTOM_SOUNDS_KEY, JSON.stringify(sounds));
-    } catch (error) {
-        console.error('Error saving custom sound:', error);
-        throw error;
-    }
-};
-
-export const deleteCustomSound = async (id: string): Promise<void> => {
-    try {
-        const sounds = await getCustomSounds();
-        const filtered = sounds.filter(s => s.id !== id);
-        await AsyncStorage.setItem(CUSTOM_SOUNDS_KEY, JSON.stringify(filtered));
-    } catch (error) {
-        console.error('Error deleting custom sound:', error);
-        throw error;
-    }
-};
+export async function toggleAlarm(id: string): Promise<Alarm | undefined> {
+  const alarms = await getAlarms();
+  const alarm = alarms.find((a) => a.id === id);
+  if (!alarm) return undefined;
+  alarm.enabled = !alarm.enabled;
+  await writeAlarms(alarms);
+  return alarm;
+}
