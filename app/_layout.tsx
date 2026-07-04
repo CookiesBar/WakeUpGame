@@ -11,7 +11,7 @@ import { router, Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
-import { StyleSheet } from 'react-native';
+import { Platform, StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -152,6 +152,10 @@ export default function RootLayout() {
 
   // Set up notification listeners
   useEffect(() => {
+    // Native-only: expo-notifications' listeners no-op on web and
+    // getLastNotificationResponseAsync() throws there, so skip on web.
+    if (Platform.OS === 'web') return;
+
     // When notification is received while app is open
     notificationListener.current = Notifications.addNotificationReceivedListener(notification => {
       console.log('Notification received:', notification);

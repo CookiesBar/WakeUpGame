@@ -1,0 +1,29 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "expo-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "web"],
+      "port": 8081
+    },
+    {
+      "name": "expo",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "start"],
+      "port": 8081
+    },
+    {
+      "name": "expo-clear",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "start", "--", "--clear"],
+      "port": 8081
+    },
+    {
+      "name": "expo-main",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "../../..", "run", "start", "--", "--clear"],
+      "port": 8081
+    }
+  ]
+}

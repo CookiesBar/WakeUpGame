@@ -65,25 +65,14 @@ export default function WheelPicker({
         setVisibleSelectedIndex(normalized);
     }, [normalizeIndex]);
 
-    const recenterIfNeeded = useCallback((currentVirtualIndex: number) => {
-        if (!infinite) return;
-
-        // If we've scrolled too far from middle, reset position
-        const normalizedIndex = normalizeIndex(currentVirtualIndex);
-        const middleIndex = middleRepetition * dataLength + normalizedIndex;
-
-        if (currentVirtualIndex < dataLength / 2 || currentVirtualIndex > dataLength * 2.5) {
-            translateY.value = -middleIndex * itemHeight;
-        }
-    }, [infinite, dataLength, middleRepetition, itemHeight, normalizeIndex]);
-
     const snapToIndex = useCallback((velocity: number) => {
         'worklet';
         let currentIndex = Math.round(-translateY.value / itemHeight);
 
-        // Add momentum effect
-        if (Math.abs(velocity) > 200) {
-            const momentumItems = Math.round(velocity / 800);
+        // Project the fling: let a fast swipe carry across multiple items so it
+        // feels like a real wheel, not one-item-per-swipe.
+        if (Math.abs(velocity) > 80) {
+            const momentumItems = Math.round(velocity / 350);
             currentIndex = currentIndex - momentumItems;
         }
 
@@ -91,26 +80,39 @@ export default function WheelPicker({
             currentIndex = Math.max(0, Math.min(dataLength - 1, currentIndex));
         }
 
-        translateY.value = withSpring(-currentIndex * itemHeight, {
-            damping: 20,
-            stiffness: 150,
-            mass: 0.5,
-        });
+        const targetIndex = currentIndex;
+
+        // Animate the fling to its resting spot. Recentering happens ONLY in the
+        // completion callback — after momentum fully ends — so we never teleport
+        // the wheel mid-scroll. The recenter jump is always a whole multiple of
+        // dataLength, so once the spring has settled the shift is invisible.
+        translateY.value = withSpring(
+            -targetIndex * itemHeight,
+            {
+                damping: 20,
+                stiffness: 150,
+                mass: 0.5,
+            },
+            (finished) => {
+                'worklet';
+                if (!finished || !infinite || dataLength === 0) return;
+                if (targetIndex >= dataLength / 2 && targetIndex <= dataLength * 2.5) return;
+
+                const normalized = ((targetIndex % dataLength) + dataLength) % dataLength;
+                const middleIndex = middleRepetition * dataLength + normalized;
+                translateY.value = -middleIndex * itemHeight;
+            }
+        );
 
         // Update visible selection and notify parent
-        runOnJS(updateVisibleSelection)(currentIndex);
+        runOnJS(updateVisibleSelection)(targetIndex);
 
         const normalizedIndex = infinite && dataLength > 0
-            ? ((currentIndex % dataLength) + dataLength) % dataLength
-            : currentIndex;
+            ? ((targetIndex % dataLength) + dataLength) % dataLength
+            : targetIndex;
 
         runOnJS(onIndexChange)(normalizedIndex);
-
-        // Recenter after animation
-        if (infinite) {
-            runOnJS(recenterIfNeeded)(currentIndex);
-        }
-    }, [dataLength, infinite, itemHeight, onIndexChange, updateVisibleSelection, recenterIfNeeded]);
+    }, [dataLength, infinite, itemHeight, middleRepetition, onIndexChange, updateVisibleSelection]);
 
     // Update visible selection during drag
     const updateSelectionDuringDrag = useCallback(() => {
