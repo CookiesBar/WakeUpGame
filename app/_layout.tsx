@@ -20,6 +20,7 @@ import Onboarding from '@/components/Onboarding';
 import { getPendingDemoAlarm } from '@/components/OnboardingAlarmDemo';
 import { Colors } from '@/constants/theme';
 import { AlarmProvider } from '@/contexts/AlarmContext';
+import { BACKUP_WINDOW_MS } from '@/utils/notifications';
 import { checkPremiumStatus, configureRevenueCat, presentPaywall } from '@/utils/revenueCat';
 import { initializeAudio, playAlarmSound } from '@/utils/sounds';
 
@@ -68,21 +69,24 @@ export default function RootLayout() {
   const [isCheckingPremium, setIsCheckingPremium] = useState(false);
   const notificationListener = useRef<Notifications.EventSubscription>(null);
   const responseListener = useRef<Notifications.EventSubscription>(null);
-  const handledNotificationIds = useRef<Set<string>>(new Set());
+  // alarmId → when we last handled it. Backup notifications share the alarmId
+  // but have distinct identifiers, so dedupe per alarm within one ring window.
+  const lastHandledAt = useRef<Map<string, number>>(new Map());
 
   // Handle alarm notification with deduplication
   const handleAlarmNotificationSafe = (notification: Notifications.Notification) => {
-    const notificationId = notification.request.identifier;
+    const alarmId = notification.request.content.data?.alarmId as string | undefined;
+    if (!alarmId) return;
 
-    // Skip if already handled
-    if (handledNotificationIds.current.has(notificationId)) {
-      console.log('Notification already handled, skipping:', notificationId);
+    const now = Date.now();
+    const last = lastHandledAt.current.get(alarmId);
+    if (last !== undefined && now - last < BACKUP_WINDOW_MS) {
+      console.log('Alarm already being handled, skipping:', alarmId);
       return;
     }
 
-    // Mark as handled
-    handledNotificationIds.current.add(notificationId);
-    console.log('Handling notification:', notificationId);
+    lastHandledAt.current.set(alarmId, now);
+    console.log('Handling notification for alarm:', alarmId);
 
     handleAlarmNotification(notification);
   };

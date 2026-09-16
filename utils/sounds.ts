@@ -3,20 +3,21 @@ import { Audio } from 'expo-av';
 import * as DocumentPicker from 'expo-document-picker';
 import { CustomSound, generateId, saveCustomSound } from './storage';
 
-// Bundled alarm sounds registry
+// Bundled alarm sounds registry.
+// `notificationSound` is the filename registered with the expo-notifications plugin
+// (see app.json). Notification sounds must be .wav/.aiff/.caf and under 30 s or
+// iOS silently plays the default alert instead; the name must also be a valid
+// Android raw-resource name (lowercase, [a-z0-9_]).
 export interface BundledSound {
     id: string;
     name: string;
     source: any;
+    notificationSound: string;
 }
 
 export const BUNDLED_SOUNDS: BundledSound[] = [
-    { id: 'fast-alarm', name: 'Fast Alarm', source: require('../assets/sounds/Fast Alarm.mp3') },
-    { id: 'slow-alarm', name: 'Slow Alarm', source: require('../assets/sounds/Slow Alarm.mp3') },
-    { id: 'beige-sparkle', name: 'Beige Sparkle', source: require('../assets/sounds/Beige Sparkle .mp3') },
-    { id: 'coffee-run', name: 'Coffee Run', source: require('../assets/sounds/Coffee Run.mp3') },
-    { id: 'office-water', name: 'Office Water', source: require('../assets/sounds/Office Water.mp3') },
-    { id: 'whimsical', name: 'Whimsical', source: require('../assets/sounds/Wimsicle.mp3') },
+    { id: 'fast-alarm', name: 'Fast Alarm', source: require('../assets/sounds/fast_alarm.wav'), notificationSound: 'fast_alarm.wav' },
+    { id: 'slow-alarm', name: 'Slow Alarm', source: require('../assets/sounds/slow_alarm.wav'), notificationSound: 'slow_alarm.wav' },
 ];
 
 // Default sound ID

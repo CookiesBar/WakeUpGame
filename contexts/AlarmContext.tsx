@@ -1,10 +1,12 @@
 // Alarm Context for state management
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, ReactNode, useCallback, useContext, useEffect, useState } from 'react';
+import { AppState } from 'react-native';
 import { clearPendingDemoAlarm, getPendingDemoAlarm } from '../components/OnboardingAlarmDemo';
 import {
     cancelAlarmNotification,
     requestNotificationPermissions,
+    rescheduleRepeatingAlarms,
     scheduleAlarmNotification,
 } from '../utils/notifications';
 import {
@@ -75,6 +77,22 @@ export const AlarmProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             setLoading(false);
         };
         init();
+    }, []);
+
+    // Notifications are one-shot DATE triggers for the next occurrence, so
+    // repeating alarms need re-arming after they fire. Do it on launch and
+    // whenever the app returns to the foreground.
+    useEffect(() => {
+        const rearm = () => {
+            getAlarms()
+                .then(alarms => rescheduleRepeatingAlarms(alarms, { skipRinging: true }))
+                .catch(error => console.error('Error re-arming repeating alarms:', error));
+        };
+        rearm();
+        const subscription = AppState.addEventListener('change', state => {
+            if (state === 'active') rearm();
+        });
+        return () => subscription.remove();
     }, []);
 
     const refreshAlarms = useCallback(async () => {

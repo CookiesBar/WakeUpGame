@@ -1,9 +1,11 @@
 import { BorderRadius, Colors, FontFamily, FontSize, Spacing } from '@/constants/theme';
+import { rescheduleRepeatingAlarms } from '@/utils/notifications';
 import { recordAlarmCompletion } from '@/utils/rating';
 import { stopAlarmSound } from '@/utils/sounds';
+import { getAlarms } from '@/utils/storage';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { Accelerometer, AccelerometerMeasurement } from 'expo-sensors';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -236,6 +238,8 @@ const generatePickLargestProblem = (difficulty: Difficulty): PickLargestProblem 
 };
 
 export default function SequenceGame() {
+    const { alarmId } = useLocalSearchParams<{ alarmId?: string }>();
+
     // Stage management
     const [currentStageIndex, setCurrentStageIndex] = useState(0);
     const currentStage = STAGES[currentStageIndex];
@@ -328,10 +332,17 @@ export default function SequenceGame() {
     // Complete all games
     const handleComplete = useCallback(async () => {
         stopAlarmSound();
+        // The ring screen cancelled this alarm's remaining notifications;
+        // re-arm it for its next occurrence if it repeats.
+        if (alarmId) {
+            const alarms = await getAlarms();
+            const alarm = alarms.find(a => a.id === alarmId);
+            if (alarm) await rescheduleRepeatingAlarms([alarm]).catch(() => undefined);
+        }
         // Record completion for rating dialog
         await recordAlarmCompletion();
         router.replace('/');
-    }, []);
+    }, [alarmId]);
 
     // ========== SHAKE GAME ==========
     useEffect(() => {
