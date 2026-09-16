@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { Accelerometer, type AccelerometerMeasurement } from 'expo-sensors';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Dimensions, Pressable, StyleSheet, Text, Vibration, View } from 'react-native';
@@ -8,6 +8,8 @@ import ConfettiCannon from 'react-native-confetti-cannon';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BorderRadius, Colors, FontFamily, FontSize, Spacing } from '@/constants/theme';
+import { useAlarms } from '@/contexts/AlarmContext';
+import { useLocale } from '@/contexts/LocaleContext';
 import { stopAlarmSound } from '@/utils/sounds';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -101,7 +103,16 @@ const DIFFICULTY_COLOR: Record<Difficulty, string> = {
   hard: Colors.danger,
 };
 
+const DIFFICULTY_KEY: Record<Difficulty, string> = {
+  easy: 'game.difficultyEasy',
+  medium: 'game.difficultyMedium',
+  hard: 'game.difficultyHard',
+};
+
 export default function GameScreen() {
+  const { t } = useLocale();
+  const { alarmId } = useLocalSearchParams<{ alarmId?: string }>();
+  const { dismissAlarm } = useAlarms();
   const [stageIdx, setStageIdx] = useState(0);
   const stage = STAGES[stageIdx];
 
@@ -150,8 +161,9 @@ export default function GameScreen() {
 
   const finish = useCallback(() => {
     stopAlarmSound();
+    if (alarmId) dismissAlarm(alarmId).catch(() => undefined);
     router.replace('/');
-  }, []);
+  }, [alarmId, dismissAlarm]);
 
   // Shake stage
   useEffect(() => {
@@ -198,8 +210,8 @@ export default function GameScreen() {
   useEffect(() => {
     if (stage !== 'complete') return;
     setConfetti(true);
-    const t = setTimeout(finish, 2200);
-    return () => clearTimeout(t);
+    const timer = setTimeout(finish, 2200);
+    return () => clearTimeout(timer);
   }, [stage, finish]);
 
   const onMathPick = (choice: number) => {
@@ -242,13 +254,13 @@ export default function GameScreen() {
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Wake Up Challenge</Text>
+        <Text style={styles.headerTitle}>{t('game.headerTitle')}</Text>
       </View>
 
       {stage !== 'complete' && (
         <View style={styles.progressWrap}>
           <Text style={styles.progressText}>
-            Step {stageIdx + 1} of {totalSteps}
+            {t('game.stepProgress', { step: stageIdx + 1, total: totalSteps })}
           </Text>
           <View style={styles.progressBar}>
             <View
@@ -266,12 +278,12 @@ export default function GameScreen() {
               size={80}
               color={isShaking ? Colors.success : Colors.textSecondary}
             />
-            <Text style={styles.stageTitle}>Shake your phone!</Text>
-            <Text style={styles.stageDesc}>Keep shaking to wake yourself up</Text>
+            <Text style={styles.stageTitle}>{t('game.shakeTitle')}</Text>
+            <Text style={styles.stageDesc}>{t('game.shakeDesc')}</Text>
             <View style={styles.timerCircle}>
               <Text style={styles.timerText}>{shakeRemaining}</Text>
             </View>
-            {isShaking && <Text style={styles.shakeOn}>Shaking!</Text>}
+            {isShaking && <Text style={styles.shakeOn}>{t('game.shakingOn')}</Text>}
           </View>
         )}
 
@@ -281,10 +293,10 @@ export default function GameScreen() {
             return (
               <View style={styles.stage}>
                 <View style={[styles.badge, { backgroundColor: DIFFICULTY_COLOR[p.difficulty] }]}>
-                  <Text style={styles.badgeText}>{p.difficulty.toUpperCase()}</Text>
+                  <Text style={styles.badgeText}>{t(DIFFICULTY_KEY[p.difficulty])}</Text>
                 </View>
-                <Text style={styles.stageTitle}>Quick math</Text>
-                <Text style={styles.problem}>{p.question} = ?</Text>
+                <Text style={styles.stageTitle}>{t('game.mathTitle')}</Text>
+                <Text style={styles.problem}>{t('game.mathQuestion', { question: p.question })}</Text>
                 <View style={styles.choicesGrid}>
                   {p.choices.map((choice, i) => {
                     const selected = mathPick === choice;
@@ -313,7 +325,7 @@ export default function GameScreen() {
                   })}
                 </View>
                 <Text style={styles.subProgress}>
-                  Problem {mathIdx + 1} of {DIFFICULTIES.length}
+                  {t('game.problemProgress', { step: mathIdx + 1, total: DIFFICULTIES.length })}
                 </Text>
               </View>
             );
@@ -325,10 +337,10 @@ export default function GameScreen() {
             return (
               <View style={styles.stage}>
                 <View style={[styles.badge, { backgroundColor: DIFFICULTY_COLOR[p.difficulty] }]}>
-                  <Text style={styles.badgeText}>{p.difficulty.toUpperCase()}</Text>
+                  <Text style={styles.badgeText}>{t(DIFFICULTY_KEY[p.difficulty])}</Text>
                 </View>
-                <Text style={styles.stageTitle}>Pick the largest</Text>
-                <Text style={styles.stageDesc}>Tap the biggest number</Text>
+                <Text style={styles.stageTitle}>{t('game.largestTitle')}</Text>
+                <Text style={styles.stageDesc}>{t('game.largestDesc')}</Text>
                 <View style={styles.choicesGrid}>
                   {p.numbers.map((n, i) => (
                     <Pressable
@@ -341,7 +353,7 @@ export default function GameScreen() {
                   ))}
                 </View>
                 <Text style={styles.subProgress}>
-                  Problem {largestIdx + 1} of {DIFFICULTIES.length}
+                  {t('game.problemProgress', { step: largestIdx + 1, total: DIFFICULTIES.length })}
                 </Text>
               </View>
             );
@@ -350,8 +362,8 @@ export default function GameScreen() {
         {stage === 'complete' && (
           <View style={styles.stage}>
             <Ionicons name="checkmark-circle" size={100} color={Colors.success} />
-            <Text style={styles.stageTitle}>You're awake!</Text>
-            <Text style={styles.stageDesc}>Alarm off. Have a great day.</Text>
+            <Text style={styles.stageTitle}>{t('game.completeTitle')}</Text>
+            <Text style={styles.stageDesc}>{t('game.completeDesc')}</Text>
           </View>
         )}
       </View>

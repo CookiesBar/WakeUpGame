@@ -5,28 +5,19 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import Mascot from '@/components/Mascot';
 import ScreenBackground from '@/components/ScreenBackground';
-import TabBar from '@/components/TabBar';
 import Toggle from '@/components/Toggle';
 import { BorderRadius, Colors, FontFamily, FontSize, Shadow, Spacing } from '@/constants/theme';
 import { useAlarms } from '@/contexts/AlarmContext';
-import type { Alarm, Weekday } from '@/utils/storage';
-
-const DAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+import { useLocale } from '@/contexts/LocaleContext';
+import { getNarrowWeekdays } from '@/i18n/weekdays';
+import { repeatLabel } from '@/utils/repeatLabel';
+import type { Alarm } from '@/utils/storage';
 
 function splitTime(time: string) {
   const [h, m] = time.split(':').map(Number);
   const meridiem = h >= 12 ? 'PM' : 'AM';
   const hour12 = h % 12 === 0 ? 12 : h % 12;
   return { display: `${hour12}:${String(m).padStart(2, '0')}`, meridiem };
-}
-
-function repeatLabel(days: Weekday[]): string {
-  if (days.length === 0) return 'Once';
-  if (days.length === 7) return 'Every day';
-  const s = [...days].sort();
-  if (s.length === 5 && [1, 2, 3, 4, 5].every((d) => s.includes(d as Weekday))) return 'Weekdays';
-  if (s.length === 2 && [0, 6].every((d) => s.includes(d as Weekday))) return 'Weekends';
-  return s.map((d) => DAY_LABELS[d]).join(' · ');
 }
 
 function Badge({ children }: { children: string }) {
@@ -43,7 +34,9 @@ function AlarmRow({ alarm, onToggle, onEdit, onDelete }: {
   onEdit: () => void;
   onDelete: () => void;
 }) {
+  const { t, locale } = useLocale();
   const { display, meridiem } = splitTime(alarm.time);
+  const dayLabels = getNarrowWeekdays(locale);
   return (
     <Pressable
       style={[styles.row, !alarm.enabled && styles.rowOff]}
@@ -56,8 +49,8 @@ function AlarmRow({ alarm, onToggle, onEdit, onDelete }: {
           <Text style={styles.meridiem}>{meridiem}</Text>
         </View>
         <View style={styles.metaLine}>
-          <Text style={styles.rowLabel}>{alarm.label || 'Alarm'}</Text>
-          <Badge>{repeatLabel(alarm.days)}</Badge>
+          <Text style={styles.rowLabel}>{alarm.label || t('common.alarmFallback')}</Text>
+          <Badge>{repeatLabel(alarm.days, t, dayLabels)}</Badge>
         </View>
       </View>
       <Toggle checked={alarm.enabled} onChange={onToggle} />
@@ -67,12 +60,17 @@ function AlarmRow({ alarm, onToggle, onEdit, onDelete }: {
 
 export default function HomeScreen() {
   const { alarms, toggleAlarmEnabled, removeAlarm } = useAlarms();
+  const { t } = useLocale();
 
   const confirmDelete = (alarm: Alarm) => {
-    Alert.alert('Delete alarm', `Remove "${alarm.label || 'Alarm'}"?`, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: () => removeAlarm(alarm.id) },
-    ]);
+    Alert.alert(
+      t('home.deleteAlarmTitle'),
+      t('home.deleteAlarmMessage', { label: alarm.label || t('common.alarmFallback') }),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        { text: t('common.delete'), style: 'destructive', onPress: () => removeAlarm(alarm.id) },
+      ]
+    );
   };
 
   return (
@@ -88,12 +86,10 @@ export default function HomeScreen() {
           {alarms.length === 0 ? (
             <View style={styles.empty}>
               <Mascot mood="snooze" size={140} />
-              <Text style={styles.emptyTitle}>No alarms yet</Text>
-              <Text style={styles.emptyBody}>
-                Set one and beat the wake-up challenge to turn it off.
-              </Text>
+              <Text style={styles.emptyTitle}>{t('home.emptyTitle')}</Text>
+              <Text style={styles.emptyBody}>{t('home.emptyBody')}</Text>
               <Pressable style={styles.emptyCta} onPress={() => router.push('/alarm/new')}>
-                <Text style={styles.emptyCtaText}>Create your first alarm</Text>
+                <Text style={styles.emptyCtaText}>{t('home.emptyCta')}</Text>
               </Pressable>
             </View>
           ) : (
@@ -111,7 +107,6 @@ export default function HomeScreen() {
           )}
         </View>
       </SafeAreaView>
-      <TabBar active="alarms" />
     </ScreenBackground>
   );
 }
@@ -135,7 +130,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     ...Shadow.blue,
   },
-  scroll: { flex: 1, paddingHorizontal: Spacing.xl, paddingTop: Spacing.sm, paddingBottom: 120 },
+  scroll: { flex: 1, paddingHorizontal: Spacing.xl, paddingTop: Spacing.sm, paddingBottom: Spacing.xl },
   list: { gap: Spacing.md },
   row: {
     flexDirection: 'row',

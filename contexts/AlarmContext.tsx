@@ -6,8 +6,11 @@ import React, {
   useEffect,
   useState,
 } from 'react';
+import { AppState, Platform } from 'react-native';
 import {
   cancelAlarmNotification,
+  dismissAlarm as dismissAlarmNotification,
+  rearmAlarmBursts,
   requestNotificationPermissions,
   scheduleAlarmNotification,
 } from '@/utils/notifications';
@@ -15,6 +18,7 @@ import {
   Alarm,
   deleteAlarm as deleteAlarmStorage,
   generateId,
+  getAlarm,
   getAlarms,
   saveAlarm,
   toggleAlarm as toggleAlarmStorage,
@@ -27,6 +31,8 @@ interface AlarmContextValue {
   updateAlarm: (alarm: Alarm) => Promise<void>;
   removeAlarm: (id: string) => Promise<void>;
   toggleAlarmEnabled: (id: string) => Promise<void>;
+  /** User finished the wake-up challenge: silence the burst, arm the next one. */
+  dismissAlarm: (id: string) => Promise<void>;
   refreshAlarms: () => Promise<void>;
 }
 
@@ -49,6 +55,22 @@ export const AlarmProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       setLoading(false);
     })();
   }, [refreshAlarms]);
+
+  // Bursts are only armed for the next occurrence, so top them up on launch
+  // and every time the app returns to the foreground.
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    const rearm = () => {
+      getAlarms()
+        .then(rearmAlarmBursts)
+        .catch((err) => console.error('rearmAlarmBursts failed:', err));
+    };
+    rearm();
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') rearm();
+    });
+    return () => sub.remove();
+  }, []);
 
   const addAlarm = useCallback(
     async (data: Omit<Alarm, 'id' | 'createdAt'>): Promise<Alarm> => {
@@ -98,6 +120,11 @@ export const AlarmProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     [refreshAlarms]
   );
 
+  const dismissAlarm = useCallback(async (id: string): Promise<void> => {
+    const alarm = await getAlarm(id);
+    if (alarm) await dismissAlarmNotification(alarm);
+  }, []);
+
   return (
     <AlarmContext.Provider
       value={{
@@ -107,6 +134,7 @@ export const AlarmProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         updateAlarm,
         removeAlarm,
         toggleAlarmEnabled,
+        dismissAlarm,
         refreshAlarms,
       }}
     >

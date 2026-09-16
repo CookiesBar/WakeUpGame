@@ -12,6 +12,7 @@ import Animated, {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Colors, FontFamily, FontSize, Spacing } from '@/constants/theme';
+import { useLocale } from '@/contexts/LocaleContext';
 
 function formatClock(time: string): string {
   if (!time) return '';
@@ -22,11 +23,13 @@ function formatClock(time: string): string {
 }
 
 export default function RingScreen() {
-  const { label, time, soundId } = useLocalSearchParams<{
+  const { alarmId, label, time, soundId } = useLocalSearchParams<{
+    alarmId?: string;
     label?: string;
     time?: string;
     soundId?: string;
   }>();
+  const { t } = useLocale();
 
   const pulse = useSharedValue(1);
 
@@ -45,7 +48,7 @@ export default function RingScreen() {
   const startChallenge = () => {
     router.replace({
       pathname: '/game',
-      params: { soundId: soundId ?? '' },
+      params: { alarmId: alarmId ?? '', soundId: soundId ?? '' },
     });
   };
 
@@ -53,7 +56,7 @@ export default function RingScreen() {
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <View style={styles.top}>
         <Text style={styles.clock}>{formatClock(time ?? '')}</Text>
-        <Text style={styles.label}>{label || 'Wake Up!'}</Text>
+        <Text style={styles.label}>{label || t('ring.defaultLabel')}</Text>
       </View>
 
       <View style={styles.center}>
@@ -63,11 +66,9 @@ export default function RingScreen() {
       </View>
 
       <View style={styles.bottom}>
-        <Text style={styles.hint}>
-          Complete the wake-up challenge to turn off the alarm.
-        </Text>
+        <Text style={styles.hint}>{t('ring.hint')}</Text>
         <Pressable style={styles.cta} onPress={startChallenge}>
-          <Text style={styles.ctaText}>Start challenge</Text>
+          <Text style={styles.ctaText}>{t('ring.startChallenge')}</Text>
         </Pressable>
       </View>
     </SafeAreaView>

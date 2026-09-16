@@ -20,6 +20,8 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 
 import { AlarmProvider } from '@/contexts/AlarmContext';
+import { LocaleProvider } from '@/contexts/LocaleContext';
+import { BURST_WINDOW_MS, cancelAlarmBurst } from '@/utils/notifications';
 import { configureRevenueCat } from '@/utils/revenueCat';
 import { initializeAudio, playAlarmSound } from '@/utils/sounds';
 
@@ -40,6 +42,10 @@ function handleAlarmNotification(notification: Notifications.Notification) {
     soundId?: string | null;
   };
   if (!data?.alarmId) return;
+
+  // The app is now handling the alarm (looping sound + ring screen), so the
+  // remaining OS-level burst notifications would only double up on it.
+  cancelAlarmBurst(data.alarmId).catch(() => undefined);
 
   playAlarmSound(data.soundId ?? undefined);
   router.push({
@@ -64,7 +70,8 @@ export default function RootLayout() {
     Nunito_800ExtraBold,
   });
 
-  const handledIds = useRef<Set<string>>(new Set());
+  /** alarmId → last time we handled it; burst follow-ups share the alarmId. */
+  const lastHandledAt = useRef<Map<string, number>>(new Map());
   const receivedSub = useRef<Notifications.EventSubscription | null>(null);
   const responseSub = useRef<Notifications.EventSubscription | null>(null);
 
@@ -84,10 +91,15 @@ export default function RootLayout() {
   useEffect(() => {
     if (Platform.OS === 'web') return; // notifications are native-only
 
+    // Dedupe per alarm within one ring window: the base notification and its
+    // burst follow-ups all carry the same alarmId but distinct identifiers.
     const handleSafe = (notification: Notifications.Notification) => {
-      const id = notification.request.identifier;
-      if (handledIds.current.has(id)) return;
-      handledIds.current.add(id);
+      const alarmId = (notification.request.content.data as { alarmId?: string })?.alarmId;
+      if (!alarmId) return;
+      const now = Date.now();
+      const last = lastHandledAt.current.get(alarmId);
+      if (last !== undefined && now - last < BURST_WINDOW_MS) return;
+      lastHandledAt.current.set(alarmId, now);
       handleAlarmNotification(notification);
     };
 
@@ -109,33 +121,34 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={styles.container}>
-      <AlarmProvider>
-        <StatusBar style="dark" />
-        <Stack screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="index" />
-          <Stack.Screen name="profile" options={{ animation: 'none' }} />
-          <Stack.Screen
-            name="alarm/[id]"
-            options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
-          />
-          <Stack.Screen
-            name="ring"
-            options={{
-              presentation: 'fullScreenModal',
-              gestureEnabled: false,
-              animation: 'fade',
-            }}
-          />
-          <Stack.Screen
-            name="game"
-            options={{
-              presentation: 'fullScreenModal',
-              gestureEnabled: false,
-              animation: 'fade',
-            }}
-          />
-        </Stack>
-      </AlarmProvider>
+      <LocaleProvider>
+        <AlarmProvider>
+          <StatusBar style="dark" />
+          <Stack screenOptions={{ headerShown: false }}>
+            <Stack.Screen name="index" />
+            <Stack.Screen
+              name="alarm/[id]"
+              options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
+            />
+            <Stack.Screen
+              name="ring"
+              options={{
+                presentation: 'fullScreenModal',
+                gestureEnabled: false,
+                animation: 'fade',
+              }}
+            />
+            <Stack.Screen
+              name="game"
+              options={{
+                presentation: 'fullScreenModal',
+                gestureEnabled: false,
+                animation: 'fade',
+              }}
+            />
+          </Stack>
+        </AlarmProvider>
+      </LocaleProvider>
     </GestureHandlerRootView>
   );
 }

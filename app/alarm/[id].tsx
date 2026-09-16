@@ -17,13 +17,15 @@ import WheelPicker from '@/components/WheelPicker';
 import { BUNDLED_SOUNDS, DEFAULT_SOUND_ID, getSoundById } from '@/constants/sounds';
 import { BorderRadius, Colors, FontFamily, FontSize, Shadow, Spacing } from '@/constants/theme';
 import { useAlarms } from '@/contexts/AlarmContext';
+import { useLocale } from '@/contexts/LocaleContext';
+import { getNarrowWeekdays } from '@/i18n/weekdays';
+import { repeatLabel } from '@/utils/repeatLabel';
 import { previewSound, stopPreviewSound } from '@/utils/sounds';
 import { getAlarm, type Weekday } from '@/utils/storage';
 
 const HOURS = Array.from({ length: 12 }, (_, i) => String(i + 1));
 const MINUTES = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'));
 const PERIODS = ['AM', 'PM'];
-const DAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 const ITEM_H = 44;
 const VISIBLE = 5;
 
@@ -38,19 +40,13 @@ function from24h(time: string) {
   const [h, m] = time.split(':').map(Number);
   return { hourIdx: (h % 12 === 0 ? 12 : h % 12) - 1, minIdx: m, periodIdx: h >= 12 ? 1 : 0 };
 }
-function repeatLabel(days: Weekday[]): string {
-  if (days.length === 0) return 'Once';
-  if (days.length === 7) return 'Every day';
-  const s = [...days].sort();
-  if (s.length === 5 && [1, 2, 3, 4, 5].every((d) => s.includes(d as Weekday))) return 'Weekdays';
-  if (s.length === 2 && [0, 6].every((d) => s.includes(d as Weekday))) return 'Weekends';
-  return s.map((d) => DAY_LABELS[d]).join(' · ');
-}
 
 export default function AlarmEditorScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const isNew = id === 'new';
   const { addAlarm, updateAlarm, removeAlarm } = useAlarms();
+  const { t, locale } = useLocale();
+  const dayLabels = useMemo(() => getNarrowWeekdays(locale), [locale]);
 
   const now = useMemo(() => new Date(), []);
   const [hourIdx, setHourIdx] = useState((now.getHours() % 12 || 12) - 1);
@@ -115,11 +111,13 @@ export default function AlarmEditorScreen() {
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <View style={styles.header}>
           <Pressable onPress={() => router.back()} hitSlop={8}>
-            <Text style={styles.cancel}>Cancel</Text>
+            <Text style={styles.cancel}>{t('common.cancel')}</Text>
           </Pressable>
-          <Text style={styles.headerTitle}>{isNew ? 'Add Alarm' : 'Edit Alarm'}</Text>
+          <Text style={styles.headerTitle}>
+            {isNew ? t('alarmEditor.addTitle') : t('alarmEditor.editTitle')}
+          </Text>
           <Pressable onPress={handleSave} hitSlop={8}>
-            <Text style={styles.save}>Save</Text>
+            <Text style={styles.save}>{t('common.save')}</Text>
           </Pressable>
         </View>
 
@@ -140,13 +138,13 @@ export default function AlarmEditorScreen() {
           {/* Settings card */}
           <View style={styles.card}>
             <SettingRow
-              label="Repeat"
-              value={repeatLabel(days)}
+              label={t('alarmEditor.repeat')}
+              value={repeatLabel(days, t, dayLabels)}
               open={expanded === 'repeat'}
               onPress={() => toggleRow('repeat')}
             >
               <View style={styles.daysRow}>
-                {DAY_LABELS.map((d, i) => {
+                {dayLabels.map((d, i) => {
                   const active = days.includes(i as Weekday);
                   return (
                     <Pressable
@@ -164,8 +162,8 @@ export default function AlarmEditorScreen() {
             <View style={styles.divider} />
 
             <SettingRow
-              label="Label"
-              value={label.trim() || 'Alarm'}
+              label={t('alarmEditor.label')}
+              value={label.trim() || t('common.alarmFallback')}
               open={expanded === 'label'}
               onPress={() => toggleRow('label')}
             >
@@ -173,7 +171,7 @@ export default function AlarmEditorScreen() {
                 style={styles.input}
                 value={label}
                 onChangeText={setLabel}
-                placeholder="Morning Alarm"
+                placeholder={t('alarmEditor.labelPlaceholder')}
                 placeholderTextColor={Colors.textFaint}
                 maxLength={40}
                 autoFocus
@@ -183,7 +181,7 @@ export default function AlarmEditorScreen() {
             <View style={styles.divider} />
 
             <SettingRow
-              label="Sound"
+              label={t('alarmEditor.sound')}
               value={getSoundById(soundId).name}
               open={expanded === 'sound'}
               onPress={() => toggleRow('sound')}
@@ -213,7 +211,7 @@ export default function AlarmEditorScreen() {
           {!isNew && (
             <Pressable style={styles.deleteButton} onPress={handleDelete}>
               <Ionicons name="trash-outline" size={20} color={Colors.danger} />
-              <Text style={styles.deleteText}>Delete Alarm</Text>
+              <Text style={styles.deleteText}>{t('alarmEditor.deleteAlarm')}</Text>
             </Pressable>
           )}
         </ScrollView>

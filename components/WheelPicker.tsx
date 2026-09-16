@@ -68,15 +68,32 @@ export default function WheelPicker({
   }, [selectedIndex, centerTo]);
 
   const settle = useCallback(
-    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-      const y = e.nativeEvent.contentOffset.y;
+    (y: number) => {
       const raw = Math.round(y / itemHeight);
       const real = ((raw % L) + L) % L;
       lastEmitted.current = real;
       if (real !== selectedIndex) onChange(real);
-      if (loop) centerTo(real); // invisible jump back to the middle copy
+      // Always snap to the exact item (fixes resting between values); for loop
+      // this doubles as the invisible jump back to the middle copy.
+      centerTo(real);
     },
-    [L, itemHeight, onChange, selectedIndex, loop, centerTo]
+    [L, itemHeight, onChange, selectedIndex, centerTo]
+  );
+
+  // A flick ends the drag while momentum is still to come — settling (and its
+  // recenter teleport) now would fight that momentum, so defer to
+  // onMomentumScrollEnd. Only settle here when the finger released at rest.
+  const handleScrollEndDrag = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      if (Math.abs(e.nativeEvent.velocity?.y ?? 0) > 0.01) return;
+      settle(e.nativeEvent.contentOffset.y);
+    },
+    [settle]
+  );
+
+  const handleMomentumScrollEnd = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => settle(e.nativeEvent.contentOffset.y),
+    [settle]
   );
 
   return (
@@ -89,8 +106,8 @@ export default function WheelPicker({
         decelerationRate="fast"
         nestedScrollEnabled
         onContentSizeChange={handleContentSize}
-        onMomentumScrollEnd={settle}
-        onScrollEndDrag={settle}
+        onMomentumScrollEnd={handleMomentumScrollEnd}
+        onScrollEndDrag={handleScrollEndDrag}
         contentContainerStyle={{ paddingVertical: pad }}
       >
         {data.map((item, index) => {
