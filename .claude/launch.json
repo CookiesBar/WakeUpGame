@@ -4,26 +4,56 @@
     {
       "name": "expo-web",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "web"],
+      "runtimeArgs": [
+        "run",
+        "web"
+      ],
       "port": 8081
     },
     {
       "name": "expo",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "start"],
+      "runtimeArgs": [
+        "run",
+        "start"
+      ],
       "port": 8081
     },
     {
       "name": "expo-clear",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "start", "--", "--clear"],
+      "runtimeArgs": [
+        "run",
+        "start",
+        "--",
+        "--clear"
+      ],
       "port": 8081
     },
     {
       "name": "expo-main",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "../../..", "run", "start", "--", "--clear"],
+      "runtimeArgs": [
+        "--prefix",
+        "../../..",
+        "run",
+        "start",
+        "--",
+        "--clear"
+      ],
       "port": 8081
+    },
+    {
+      "name": "expo-web-8083",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "expo",
+        "start",
+        "--web",
+        "--port",
+        "8083"
+      ],
+      "port": 8083
     }
   ]
 }

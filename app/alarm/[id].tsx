@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
+import { Pedometer } from 'expo-sensors';
 import { useEffect, useMemo, useState } from 'react';
 import {
   Pressable,
@@ -13,6 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import ScreenBackground from '@/components/ScreenBackground';
+import Toggle from '@/components/Toggle';
 import WheelPicker from '@/components/WheelPicker';
 import { BUNDLED_SOUNDS, DEFAULT_SOUND_ID, getSoundById } from '@/constants/sounds';
 import { BorderRadius, Colors, FontFamily, FontSize, Shadow, Spacing } from '@/constants/theme';
@@ -21,9 +23,23 @@ import { useLocale } from '@/contexts/LocaleContext';
 import { getNarrowWeekdays } from '@/i18n/weekdays';
 import { repeatLabel } from '@/utils/repeatLabel';
 import { previewSound, stopPreviewSound } from '@/utils/sounds';
-import { getAlarm, type Weekday } from '@/utils/storage';
+import {
+  DEFAULT_MATH_LEVEL,
+  DEFAULT_STEPS,
+  getAlarm,
+  MATH_LEVELS,
+  MISSIONS,
+  NAP_OFFSETS,
+  STEP_OPTIONS,
+  type Mission,
+  type Weekday,
+} from '@/utils/storage';
+import type { MathLevel } from '@/utils/math';
+import { nextOccurrence, ringsIn, use24h, useNow } from '@/utils/time';
 
-const HOURS = Array.from({ length: 12 }, (_, i) => String(i + 1));
+const pad = (n: number) => String(n).padStart(2, '0');
+const HOURS_12 = Array.from({ length: 12 }, (_, i) => String(i + 1));
+const HOURS_24 = Array.from({ length: 24 }, (_, i) => pad(i));
 const MINUTES = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'));
 const PERIODS = ['AM', 'PM'];
 const ITEM_H = 44;
@@ -31,45 +47,49 @@ const VISIBLE = 5;
 
 type Row = 'repeat' | 'label' | 'sound' | null;
 
-function to24h(hour12: number, minute: number, period: string): string {
-  let h = hour12 % 12;
-  if (period === 'PM') h += 12;
-  return `${String(h).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
-}
-function from24h(time: string) {
-  const [h, m] = time.split(':').map(Number);
-  return { hourIdx: (h % 12 === 0 ? 12 : h % 12) - 1, minIdx: m, periodIdx: h >= 12 ? 1 : 0 };
-}
-
 export default function AlarmEditorScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, routineId: newRoutineId } = useLocalSearchParams<{ id: string; routineId?: string }>();
   const isNew = id === 'new';
-  const { addAlarm, updateAlarm, removeAlarm } = useAlarms();
+  const { alarms, routines, addAlarm, updateAlarm, removeAlarm } = useAlarms();
   const { t, locale } = useLocale();
   const dayLabels = useMemo(() => getNarrowWeekdays(locale), [locale]);
 
-  const now = useMemo(() => new Date(), []);
-  const [hourIdx, setHourIdx] = useState((now.getHours() % 12 || 12) - 1);
-  const [minIdx, setMinIdx] = useState(now.getMinutes());
-  const [periodIdx, setPeriodIdx] = useState(now.getHours() >= 12 ? 1 : 0);
+  const h24 = use24h();
+  const now = useNow();
+  const [hour, setHour] = useState(() => new Date().getHours()); // 0–23
+  const [minute, setMinute] = useState(() => new Date().getMinutes());
   const [label, setLabel] = useState('');
   const [days, setDays] = useState<Weekday[]>([]);
   const [soundId, setSoundId] = useState<string>(DEFAULT_SOUND_ID);
+  const [steps, setSteps] = useState<number>(DEFAULT_STEPS);
+  const [wakeCheck, setWakeCheck] = useState(true);
+  const [mission, setMission] = useState<Mission>('walk');
+  const [mathLevel, setMathLevel] = useState<MathLevel>(DEFAULT_MATH_LEVEL);
   const [expanded, setExpanded] = useState<Row>(null);
   const [loaded, setLoaded] = useState(isNew);
+  const [routineId, setRoutineId] = useState(newRoutineId);
+  const [offsetMin, setOffsetMin] = useState(20);
+  const routine = routines.find((r) => r.id === routineId);
+  const nap = routine?.kind === 'nap';
+  const isLastStep = !!routine && alarms.filter((a) => a.routineId === routine.id).length <= 1;
 
   useEffect(() => {
     if (isNew) return;
     (async () => {
       const alarm = await getAlarm(id);
       if (alarm) {
-        const { hourIdx, minIdx, periodIdx } = from24h(alarm.time);
-        setHourIdx(hourIdx);
-        setMinIdx(minIdx);
-        setPeriodIdx(periodIdx);
+        const [h, m] = alarm.time.split(':').map(Number);
+        setHour(h);
+        setMinute(m);
         setLabel(alarm.label);
         setDays(alarm.days);
         setSoundId(alarm.soundId ?? DEFAULT_SOUND_ID);
+        setSteps(alarm.steps ?? DEFAULT_STEPS);
+        setWakeCheck(alarm.wakeCheck ?? false);
+        setMission(alarm.mission ?? 'walk');
+        setMathLevel(alarm.mathLevel ?? DEFAULT_MATH_LEVEL);
+        setRoutineId(alarm.routineId);
+        setOffsetMin(alarm.offsetMin ?? 20);
       }
       setLoaded(true);
     })();
@@ -80,19 +100,32 @@ export default function AlarmEditorScreen() {
   const toggleDay = (d: Weekday) =>
     setDays((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]));
 
+  const time = `${pad(hour)}:${pad(minute)}`;
+
   const handleSave = async () => {
     const data = {
-      time: to24h(hourIdx + 1, minIdx, PERIODS[periodIdx]),
+      time,
       label: label.trim(),
       enabled: true,
-      days: [...days].sort() as Weekday[],
+      // Days come from the routine; nap steps get a clock time when the nap starts.
+      days: routine ? (nap ? [] : routine.days) : ([...days].sort() as Weekday[]),
+      routineId,
+      offsetMin: nap ? offsetMin : undefined,
       soundId,
+      steps,
+      wakeCheck,
+      mission,
+      mathLevel,
     };
+    // Ask for Motion now, not at 6 a.m. Denied is fine: the ring screen falls
+    // back to the accelerometer. No-op once the user has answered.
+    if (mission === 'walk' || mission === 'both') await Pedometer.requestPermissionsAsync().catch(() => undefined);
     if (isNew) {
       await addAlarm(data);
     } else {
       const existing = await getAlarm(id);
-      await updateAlarm({ ...data, id, createdAt: existing?.createdAt ?? Date.now() });
+      // Keep fields this screen doesn't edit (level progress).
+      await updateAlarm({ ...existing, ...data, id, createdAt: existing?.createdAt ?? Date.now() });
     }
     router.back();
   };
@@ -122,22 +155,120 @@ export default function AlarmEditorScreen() {
         </View>
 
         <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+          {nap ? (
+            <View style={[styles.card, styles.rowStacked, { marginVertical: Spacing.lg }]}>
+              <Text style={styles.rowLabel}>{t('alarmEditor.offset')}</Text>
+              <View style={styles.offsets}>
+                {NAP_OFFSETS.map((m) => (
+                  <Pressable
+                    key={m}
+                    style={[styles.offset, m === offsetMin && styles.segmentItemOn]}
+                    onPress={() => setOffsetMin(m)}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: m === offsetMin }}
+                  >
+                    <Text style={[styles.segmentText, m === offsetMin && styles.segmentTextOn]}>
+                      {t('alarmEditor.offsetValue', { m })}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+          ) : (
+          <>
           {/* Time wheel */}
           <View style={styles.wheelWrap}>
             <View style={styles.band} pointerEvents="none" />
             <View style={styles.wheelRow}>
-              <WheelPicker items={HOURS} selectedIndex={hourIdx} onChange={setHourIdx} itemHeight={ITEM_H} visibleCount={VISIBLE} width={58} loop />
+              {h24 ? (
+                <WheelPicker items={HOURS_24} selectedIndex={hour} onChange={setHour} itemHeight={ITEM_H} visibleCount={VISIBLE} width={58} loop />
+              ) : (
+                <WheelPicker
+                  items={HOURS_12}
+                  selectedIndex={(hour % 12 || 12) - 1}
+                  onChange={(i) => setHour((h) => ((i + 1) % 12) + (h >= 12 ? 12 : 0))}
+                  itemHeight={ITEM_H} visibleCount={VISIBLE} width={58} loop
+                />
+              )}
               <Text style={styles.colon}>:</Text>
-              <WheelPicker items={MINUTES} selectedIndex={minIdx} onChange={setMinIdx} itemHeight={ITEM_H} visibleCount={VISIBLE} width={58} loop />
-              <WheelPicker items={PERIODS} selectedIndex={periodIdx} onChange={setPeriodIdx} itemHeight={ITEM_H} visibleCount={VISIBLE} width={64} />
+              <WheelPicker items={MINUTES} selectedIndex={minute} onChange={setMinute} itemHeight={ITEM_H} visibleCount={VISIBLE} width={58} loop />
+              {!h24 && (
+                <WheelPicker
+                  items={PERIODS}
+                  selectedIndex={hour >= 12 ? 1 : 0}
+                  onChange={(i) => setHour((h) => (h % 12) + (i ? 12 : 0))}
+                  itemHeight={ITEM_H} visibleCount={VISIBLE} width={64}
+                />
+              )}
             </View>
             <LinearGradient colors={[Colors.paper, 'rgba(244,248,255,0)']} style={[styles.fade, styles.fadeTop]} pointerEvents="none" />
             <LinearGradient colors={['rgba(244,248,255,0)', Colors.paper]} style={[styles.fade, styles.fadeBottom]} pointerEvents="none" />
           </View>
 
+          <Text style={styles.ringsIn} accessibilityLiveRegion="polite">
+            {ringsIn(t, nextOccurrence({ time, days: routine ? routine.days : days }), now)}
+          </Text>
+          </>
+          )}
+
           {/* Settings card */}
           <View style={styles.card}>
-            <SettingRow
+            <View style={styles.rowStacked}>
+              <Text style={styles.rowLabel}>{t('alarmEditor.mission')}</Text>
+              <Segment
+                full
+                options={MISSIONS}
+                value={mission}
+                onChange={setMission}
+                label={(m) => t(`alarmEditor.mission_${m}`)}
+              />
+            </View>
+
+            {(mission === 'walk' || mission === 'both') && (
+              <>
+                <View style={styles.divider} />
+                <View style={styles.row}>
+                  <Text style={styles.rowLabel}>{t('alarmEditor.steps')}</Text>
+                  <Segment
+                    options={STEP_OPTIONS}
+                    value={steps}
+                    onChange={setSteps}
+                    label={String}
+                    a11yLabel={(n) => t('alarmEditor.stepsValue', { count: n })}
+                  />
+                </View>
+              </>
+            )}
+
+            {(mission === 'math' || mission === 'both') && (
+              <>
+                <View style={styles.divider} />
+                <View style={styles.rowStacked}>
+                  <Text style={styles.rowLabel}>{t('alarmEditor.mathLevel')}</Text>
+                  <Segment
+                    full
+                    options={MATH_LEVELS}
+                    value={mathLevel}
+                    onChange={setMathLevel}
+                    label={(l) => t(`alarmEditor.mathLevel_${l}`)}
+                  />
+                </View>
+              </>
+            )}
+
+            <View style={styles.divider} />
+
+            <View style={styles.row}>
+              <View style={{ flex: 1, paddingRight: Spacing.md }}>
+                <Text style={styles.rowLabel}>{t('alarmEditor.wakeCheck')}</Text>
+                <Text style={styles.rowHint}>{t('alarmEditor.wakeCheckHint')}</Text>
+              </View>
+              <Toggle checked={wakeCheck} onChange={setWakeCheck} />
+            </View>
+
+            {!routine && <View style={styles.divider} />}
+
+            {!routine && <SettingRow
               label={t('alarmEditor.repeat')}
               value={repeatLabel(days, t, dayLabels)}
               open={expanded === 'repeat'}
@@ -157,7 +288,7 @@ export default function AlarmEditorScreen() {
                   );
                 })}
               </View>
-            </SettingRow>
+            </SettingRow>}
 
             <View style={styles.divider} />
 
@@ -208,7 +339,7 @@ export default function AlarmEditorScreen() {
             </SettingRow>
           </View>
 
-          {!isNew && (
+          {!isNew && !isLastStep && (
             <Pressable style={styles.deleteButton} onPress={handleDelete}>
               <Ionicons name="trash-outline" size={20} color={Colors.danger} />
               <Text style={styles.deleteText}>{t('alarmEditor.deleteAlarm')}</Text>
@@ -217,6 +348,40 @@ export default function AlarmEditorScreen() {
         </ScrollView>
       </SafeAreaView>
     </ScreenBackground>
+  );
+}
+
+function Segment<T extends string | number>({
+  options,
+  value,
+  onChange,
+  label,
+  a11yLabel = label,
+  full,
+}: {
+  options: readonly T[];
+  value: T;
+  onChange: (v: T) => void;
+  label: (v: T) => string;
+  a11yLabel?: (v: T) => string;
+  /** Stretch to the row's width with equal-width items. */
+  full?: boolean;
+}) {
+  return (
+    <View style={[styles.segment, full && styles.segmentFull]}>
+      {options.map((o) => (
+        <Pressable
+          key={o}
+          style={[styles.segmentItem, full && styles.segmentItemFull, o === value && styles.segmentItemOn]}
+          onPress={() => onChange(o)}
+          accessibilityRole="button"
+          accessibilityState={{ selected: o === value }}
+          accessibilityLabel={a11yLabel(o)}
+        >
+          <Text style={[styles.segmentText, o === value && styles.segmentTextOn]}>{label(o)}</Text>
+        </Pressable>
+      ))}
+    </View>
   );
 }
 
@@ -289,6 +454,13 @@ const styles = StyleSheet.create({
   fade: { position: 'absolute', left: 0, right: 0, height: ITEM_H * 1.6 },
   fadeTop: { top: 0 },
   fadeBottom: { bottom: 0 },
+  ringsIn: {
+    textAlign: 'center',
+    fontFamily: FontFamily.bodyBold,
+    fontSize: FontSize.sm,
+    color: Colors.blue600,
+    marginBottom: Spacing.lg,
+  },
 
   card: {
     backgroundColor: Colors.surfaceCard,
@@ -304,11 +476,42 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: Spacing.lg,
   },
+  rowStacked: { paddingVertical: Spacing.lg, gap: Spacing.md },
   rowLabel: { fontFamily: FontFamily.displayBold, fontSize: FontSize.md, color: Colors.ink900 },
   rowRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  rowHint: { fontFamily: FontFamily.body, fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 2 },
   rowValue: { fontFamily: FontFamily.bodyBold, fontSize: FontSize.md, color: Colors.textMuted },
   rowBody: { paddingBottom: Spacing.lg },
   divider: { height: 1, backgroundColor: Colors.ink100 },
+
+  segment: {
+    flexDirection: 'row',
+    backgroundColor: Colors.blue50,
+    borderRadius: BorderRadius.pill,
+    padding: 3,
+  },
+  segmentItem: {
+    minWidth: 48,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 6,
+    borderRadius: BorderRadius.pill,
+    alignItems: 'center',
+  },
+  segmentFull: { alignSelf: 'stretch' },
+  offsets: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
+  offset: {
+    minWidth: 76,
+    minHeight: 44,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.pill,
+    backgroundColor: Colors.blue50,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  segmentItemFull: { flex: 1 },
+  segmentItemOn: { backgroundColor: Colors.primary },
+  segmentText: { fontFamily: FontFamily.display, fontSize: 15, color: Colors.blue700 },
+  segmentTextOn: { color: Colors.onBrand },
 
   daysRow: { flexDirection: 'row', justifyContent: 'space-between' },
   dayChip: {

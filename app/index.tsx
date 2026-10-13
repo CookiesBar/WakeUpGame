@@ -1,111 +1,226 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useMemo, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import Mascot from '@/components/Mascot';
+import AlarmClock from '@/components/AlarmClock';
 import ScreenBackground from '@/components/ScreenBackground';
 import Toggle from '@/components/Toggle';
 import { BorderRadius, Colors, FontFamily, FontSize, Shadow, Spacing } from '@/constants/theme';
 import { useAlarms } from '@/contexts/AlarmContext';
 import { useLocale } from '@/contexts/LocaleContext';
-import { getNarrowWeekdays } from '@/i18n/weekdays';
-import { repeatLabel } from '@/utils/repeatLabel';
-import type { Alarm } from '@/utils/storage';
+import { missionLabel } from '@/utils/repeatLabel';
+import { stepsOf } from '@/utils/routines';
+import { dayKey, dayState, type DayState, hhmm, nextFire, startOfDay, withPause } from '@/utils/schedule';
+import type { Alarm, Routine } from '@/utils/storage';
+import { formatTime, use24h, useNow } from '@/utils/time';
 
-function splitTime(time: string) {
-  const [h, m] = time.split(':').map(Number);
-  const meridiem = h >= 12 ? 'PM' : 'AM';
-  const hour12 = h % 12 === 0 ? 12 : h % 12;
-  return { display: `${hour12}:${String(m).padStart(2, '0')}`, meridiem };
-}
-
-function Badge({ children }: { children: string }) {
-  return (
-    <View style={styles.badge}>
-      <Text style={styles.badgeText}>{children}</Text>
-    </View>
-  );
-}
-
-function AlarmRow({ alarm, onToggle, onEdit, onDelete }: {
+interface DayAlarm {
   alarm: Alarm;
-  onToggle: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
-}) {
-  const { t, locale } = useLocale();
-  const { display, meridiem } = splitTime(alarm.time);
-  const dayLabels = getNarrowWeekdays(locale);
-  return (
-    <Pressable
-      style={[styles.row, !alarm.enabled && styles.rowOff]}
-      onPress={onEdit}
-      onLongPress={onDelete}
-    >
-      <View style={{ flex: 1 }}>
-        <View style={styles.timeLine}>
-          <Text style={styles.time}>{display}</Text>
-          <Text style={styles.meridiem}>{meridiem}</Text>
-        </View>
-        <View style={styles.metaLine}>
-          <Text style={styles.rowLabel}>{alarm.label || t('common.alarmFallback')}</Text>
-          <Badge>{repeatLabel(alarm.days, t, dayLabels)}</Badge>
-        </View>
-      </View>
-      <Toggle checked={alarm.enabled} onChange={onToggle} />
-    </Pressable>
-  );
+  routine: Routine;
+  state: DayState;
+  /** When it rings that day (moved time included); the planned time when skipped. */
+  at: Date;
+  base: Date;
 }
+
+/** Monday of the week containing `d`. */
+const mondayOf = (d: Date) => startOfDay(d, -((d.getDay() + 6) % 7));
+
+/** Center of a timeline node: half the row's min height. */
+const NODE_Y = 22;
 
 export default function HomeScreen() {
-  const { alarms, toggleAlarmEnabled, removeAlarm } = useAlarms();
-  const { t } = useLocale();
+  const { alarms, routines, pausedUntil, toggleRoutine, effective } = useAlarms();
+  const { t, locale } = useLocale();
+  const h24 = use24h();
+  const now = new Date(useNow());
+  const { width } = useWindowDimensions();
+  const [selected, setSelected] = useState(() => dayKey(new Date()));
 
-  const confirmDelete = (alarm: Alarm) => {
-    Alert.alert(
-      t('home.deleteAlarmTitle'),
-      t('home.deleteAlarmMessage', { label: alarm.label || t('common.alarmFallback') }),
-      [
-        { text: t('common.cancel'), style: 'cancel' },
-        { text: t('common.delete'), style: 'destructive', onPress: () => removeAlarm(alarm.id) },
-      ]
-    );
+  const today = dayKey(now);
+  const week = useMemo(() => {
+    const monday = mondayOf(new Date(`${selected}T00:00`));
+    return Array.from({ length: 7 }, (_, i) => startOfDay(monday, i));
+  }, [selected]);
+  const day = new Date(`${selected}T00:00`);
+
+  const clock = (d: Date, short = false) => {
+    const { display, meridiem } = formatTime(hhmm(d), h24);
+    return meridiem && !short ? `${display} ${meridiem}` : display;
   };
+  const nameOf = (r: Routine) => r.name.trim() || t('routines.fallback');
+
+  /** Every fixed-time alarm that belongs to `d`, with its skip/move applied. */
+  const alarmsOn = (d: Date): DayAlarm[] =>
+    routines
+      .filter((r) => r.kind === 'fixed' && r.enabled)
+      .flatMap((routine) =>
+        stepsOf(routine, alarms)
+          .filter((a) => a.enabled)
+          .flatMap((alarm) => {
+            if (routine.days.length === 0) {
+              // Rings once: show it on the day it will ring.
+              const at = nextFire(effective(alarm), now);
+              return at && dayKey(at) === dayKey(d) ? [{ alarm, routine, state: 'normal' as DayState, at, base: at }] : [];
+            }
+            const s = dayState(
+              { ...alarm, days: routine.days, exceptions: withPause(routine.exceptions, pausedUntil, now) },
+              d
+            );
+            return s ? [{ alarm, routine, state: s.state, at: s.fire ?? s.base, base: s.base }] : [];
+          })
+      )
+      .sort((a, b) => a.at.getTime() - b.at.getTime());
+
+  const todays = alarmsOn(day);
+  const ringing = todays.filter((d) => d.state !== 'skipped');
+  const passed = (d: DayAlarm) => d.state !== 'skipped' && d.at.getTime() <= now.getTime();
+  const byRoutine = [...new Set(todays.map((d) => d.routine))];
+  const dayName = day.toLocaleDateString(locale, { weekday: 'long' });
+  const size = Math.min(width - Spacing.xl * 4, 300);
 
   return (
     <ScreenBackground>
       <SafeAreaView style={styles.safe} edges={['top']}>
         <View style={styles.header}>
-          <Pressable style={styles.addButton} onPress={() => router.push('/alarm/new')} hitSlop={8}>
+          <Pressable style={styles.iconButton} onPress={() => router.push('/settings')} hitSlop={8} accessibilityLabel={t('settings.title')}>
+            <Ionicons name="settings-outline" size={22} color={Colors.ink700} />
+          </Pressable>
+          <Text style={styles.date} accessibilityRole="header">
+            {now.toLocaleDateString(locale, { weekday: 'short', day: 'numeric', month: 'short' })}
+          </Text>
+          <Pressable style={styles.addButton} onPress={() => router.push('/routine/new')} hitSlop={8} accessibilityLabel={t('newRoutine.title')}>
             <Ionicons name="add" size={28} color={Colors.onBrand} />
           </Pressable>
         </View>
 
-        <View style={styles.scroll}>
-          {alarms.length === 0 ? (
-            <View style={styles.empty}>
-              <Mascot mood="snooze" size={140} />
-              <Text style={styles.emptyTitle}>{t('home.emptyTitle')}</Text>
-              <Text style={styles.emptyBody}>{t('home.emptyBody')}</Text>
-              <Pressable style={styles.emptyCta} onPress={() => router.push('/alarm/new')}>
-                <Text style={styles.emptyCtaText}>{t('home.emptyCta')}</Text>
+        <ScrollView contentContainerStyle={styles.scroll}>
+          <View style={styles.clockWrap}>
+            <AlarmClock
+              size={size}
+              now={now}
+              alarms={ringing.map((d) => ({ minutes: d.at.getHours() * 60 + d.at.getMinutes(), passed: passed(d) }))}
+              label={
+                ringing.length
+                  ? t('home.clockLabel', { day: dayName, times: ringing.map((d) => clock(d.at)).join(', ') })
+                  : t('home.noAlarms', { day: dayName })
+              }
+            />
+          </View>
+
+          <View style={styles.week}>
+            {week.map((d) => {
+              const key = dayKey(d);
+              const on = key === selected;
+              const isToday = key === today;
+              const all = alarmsOn(d);
+              const first = all.find((x) => x.state !== 'skipped');
+              const empty = all.length === 0;
+              const name = isToday ? t('home.today') : d.toLocaleDateString(locale, { weekday: 'short' });
+              return (
+                <Pressable
+                  key={key}
+                  style={[
+                    styles.dayCell,
+                    empty && styles.dayEmpty,
+                    !on && !isToday && styles.dayDim,
+                    isToday && styles.dayToday,
+                    on && styles.dayOn,
+                  ]}
+                  // An empty day goes straight to making a routine for it.
+                  onPress={() =>
+                    empty
+                      ? router.push({ pathname: '/routine/new', params: { weekday: String(d.getDay()) } })
+                      : setSelected(key)
+                  }
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: on }}
+                  accessibilityLabel={[
+                    d.toLocaleDateString(locale, { weekday: 'long', day: 'numeric' }),
+                    first ? clock(first.at) : empty ? t('home.addRoutine') : '',
+                  ]
+                    .filter(Boolean)
+                    .join(', ')}
+                >
+                  <Text style={[styles.dayName, on && styles.dayTextOn]} numberOfLines={1} adjustsFontSizeToFit>
+                    {name}
+                  </Text>
+                  <Text style={[styles.dayNum, on && styles.dayTextOn]}>{d.getDate()}</Text>
+                  {empty ? (
+                    <Ionicons name="add" size={16} color={on ? Colors.onBrand : Colors.ink400} />
+                  ) : (
+                    <Text style={[styles.dayFirst, on && styles.dayTextOn]} numberOfLines={1} adjustsFontSizeToFit>
+                      {first ? clock(first.at, true) : '–'}
+                    </Text>
+                  )}
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <View style={styles.dayHead}>
+            <Text style={styles.dayTitle}>{selected === today ? t('home.today') : dayName}</Text>
+            {byRoutine.length > 0 && (
+              <Pressable
+                onPress={() => router.push({ pathname: '/day', params: { date: selected } })}
+                hitSlop={8}
+                accessibilityRole="button"
+              >
+                <Text style={styles.link}>{t('home.changeDay')}</Text>
               </Pressable>
-            </View>
-          ) : (
-            <View style={styles.list}>
-              {alarms.map((alarm) => (
-                <AlarmRow
-                  key={alarm.id}
-                  alarm={alarm}
-                  onToggle={() => toggleAlarmEnabled(alarm.id)}
-                  onEdit={() => router.push(`/alarm/${alarm.id}`)}
-                  onDelete={() => confirmDelete(alarm)}
-                />
-              ))}
-            </View>
+            )}
+          </View>
+
+          {byRoutine.length === 0 && (
+            <Pressable style={styles.empty} onPress={() => router.push('/routine/new')} accessibilityRole="button">
+              <Text style={styles.emptyText}>{t('home.noAlarms', { day: dayName })}</Text>
+              <Text style={styles.link}>{t('home.addRoutine')}</Text>
+            </Pressable>
           )}
-        </View>
+
+          {byRoutine.map((routine) => {
+            const rows = todays.filter((d) => d.routine === routine);
+            return (
+              <View key={routine.id} style={styles.card}>
+                <Pressable
+                  style={styles.cardHead}
+                  onPress={() => router.push({ pathname: '/routine/[id]', params: { id: routine.id } })}
+                >
+                  <Text style={styles.cardName} numberOfLines={1}>{nameOf(routine)}</Text>
+                  <Toggle checked={routine.enabled} onChange={() => toggleRoutine(routine.id)} />
+                </Pressable>
+                <View>
+                  {rows.length > 1 && <View style={[styles.line, { top: NODE_Y, bottom: NODE_Y }]} />}
+                  {rows.map((d) => {
+                    const done = passed(d);
+                    return (
+                      <Pressable
+                        key={d.alarm.id}
+                        style={styles.row}
+                        onPress={() => router.push(`/alarm/${d.alarm.id}`)}
+                        accessibilityState={{ checked: done }}
+                      >
+                        <View style={[styles.node, done && styles.nodeDone]}>
+                          {done && <Ionicons name="checkmark" size={12} color={Colors.onBrand} />}
+                        </View>
+                        <Text style={[styles.rowTime, (done || d.state === 'skipped') && styles.faded, d.state === 'skipped' && styles.struck]}>
+                          {clock(d.at)}
+                        </Text>
+                        {d.state === 'moved' && <Text style={[styles.was, styles.struck]}>{clock(d.base, true)}</Text>}
+                        <Text style={[styles.rowLabel, done && styles.faded]} numberOfLines={1}>
+                          {d.alarm.label || t('common.alarmFallback')}
+                        </Text>
+                        <Text style={styles.rowMission} numberOfLines={1}>{missionLabel(d.alarm, t)}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+            );
+          })}
+        </ScrollView>
       </SafeAreaView>
     </ScreenBackground>
   );
@@ -116,84 +231,105 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'flex-end',
+    justifyContent: 'space-between',
     paddingHorizontal: Spacing.xl,
     paddingTop: Spacing.sm,
     paddingBottom: Spacing.md,
   },
+  date: { fontFamily: FontFamily.displayBold, fontSize: FontSize.lg, color: Colors.ink900 },
+  iconButton: {
+    width: 44,
+    height: 44,
+    borderRadius: BorderRadius.pill,
+    backgroundColor: Colors.glassBg,
+    borderWidth: 1,
+    borderColor: Colors.ink200,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   addButton: {
-    width: 46,
-    height: 46,
+    width: 44,
+    height: 44,
     borderRadius: BorderRadius.pill,
     backgroundColor: Colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
     ...Shadow.blue,
   },
-  scroll: { flex: 1, paddingHorizontal: Spacing.xl, paddingTop: Spacing.sm, paddingBottom: Spacing.xl },
-  list: { gap: Spacing.md },
-  row: {
-    flexDirection: 'row',
+  scroll: { paddingHorizontal: Spacing.xl, paddingBottom: Spacing['3xl'], gap: Spacing.lg },
+
+  clockWrap: { alignItems: 'center' },
+
+  week: { flexDirection: 'row', gap: 4 },
+  dayCell: {
+    flex: 1,
     alignItems: 'center',
-    gap: 14,
-    padding: Spacing.lg,
-    backgroundColor: Colors.glassBg,
-    borderWidth: 1,
-    borderColor: Colors.glassBorder,
-    borderRadius: BorderRadius.xl,
-    ...Shadow.md,
+    gap: 1,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: 2,
+    borderRadius: BorderRadius.md,
+    backgroundColor: Colors.white,
+    borderWidth: 2,
+    borderColor: Colors.ink100,
   },
-  rowOff: { opacity: 0.62 },
-  timeLine: { flexDirection: 'row', alignItems: 'baseline', gap: 6 },
-  time: {
-    fontFamily: FontFamily.displayBold,
-    fontSize: 42,
-    color: Colors.ink900,
-    lineHeight: 44,
-  },
-  meridiem: { fontFamily: FontFamily.displayBold, fontSize: 16, color: Colors.blue500 },
-  metaLine: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
-  rowLabel: { fontFamily: FontFamily.bodyBlack, fontSize: 13, color: Colors.ink500 },
-  badge: {
-    backgroundColor: Colors.blue100,
-    borderRadius: BorderRadius.pill,
-    paddingHorizontal: 9,
-    paddingVertical: 3,
-  },
-  badgeText: {
-    fontFamily: FontFamily.bodyBlack,
-    fontSize: FontSize.xs,
-    color: Colors.blue700,
-    letterSpacing: 0.2,
-  },
+  dayDim: { opacity: 0.5 },
+  dayEmpty: { borderStyle: 'dashed', borderColor: Colors.ink200 },
+  dayToday: { borderColor: Colors.primary },
+  dayOn: { backgroundColor: Colors.primary, borderColor: Colors.primary, borderStyle: 'solid' },
+  dayName: { fontFamily: FontFamily.bodyBold, fontSize: FontSize.xs, color: Colors.textMuted },
+  dayNum: { fontFamily: FontFamily.displayBold, fontSize: FontSize.lg, color: Colors.ink900 },
+  dayFirst: { fontFamily: FontFamily.bodyBold, fontSize: 11, color: Colors.ink700, height: 16 },
+  dayTextOn: { color: Colors.onBrand },
+
+  dayHead: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' },
+  dayTitle: { fontFamily: FontFamily.displayBold, fontSize: FontSize.h3, color: Colors.ink900, textTransform: 'capitalize' },
+  link: { fontFamily: FontFamily.bodyBold, fontSize: FontSize.sm, color: Colors.blue600 },
+
   empty: {
     alignItems: 'center',
-    paddingTop: Spacing['3xl'],
-    gap: Spacing.md,
+    gap: Spacing.xs,
+    padding: Spacing.xl,
+    borderRadius: BorderRadius.xl,
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    borderColor: Colors.ink200,
   },
-  emptyTitle: {
-    fontFamily: FontFamily.displayBold,
-    fontSize: FontSize.h2,
-    color: Colors.ink900,
+  emptyText: { fontFamily: FontFamily.bodyBold, fontSize: FontSize.md, color: Colors.textMuted },
+
+  card: {
+    backgroundColor: Colors.surfaceCard,
+    borderRadius: BorderRadius.xl,
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.sm,
+    ...Shadow.md,
   },
-  emptyBody: {
-    textAlign: 'center',
-    fontFamily: FontFamily.body,
-    fontSize: FontSize.md,
-    color: Colors.textMuted,
-    paddingHorizontal: Spacing.xl,
+  cardHead: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, paddingVertical: Spacing.md },
+  cardName: { flex: 1, fontFamily: FontFamily.displayBold, fontSize: FontSize.lg, color: Colors.ink900 },
+  // Dotted spine joining the timeline nodes; a 2px-wide box because one-sided dotted borders don't render on iOS.
+  line: {
+    position: 'absolute',
+    left: 8,
+    width: 2,
+    borderWidth: 1,
+    borderStyle: 'dotted',
+    borderColor: Colors.ink400,
   },
-  emptyCta: {
-    marginTop: Spacing.sm,
-    backgroundColor: Colors.primary,
-    paddingHorizontal: Spacing['3xl'],
-    paddingVertical: Spacing.lg,
-    borderRadius: BorderRadius.pill,
-    ...Shadow.blue,
+  row: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, minHeight: NODE_Y * 2 },
+  node: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 2,
+    borderColor: Colors.primary,
+    backgroundColor: Colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  emptyCtaText: {
-    color: Colors.onBrand,
-    fontFamily: FontFamily.bodyBold,
-    fontSize: FontSize.md,
-  },
+  nodeDone: { backgroundColor: Colors.ink400, borderColor: Colors.ink400 },
+  rowTime: { fontFamily: FontFamily.displayBold, fontSize: FontSize.lg, color: Colors.ink900 },
+  faded: { color: Colors.ink400 },
+  struck: { textDecorationLine: 'line-through' },
+  was: { fontFamily: FontFamily.display, fontSize: FontSize.sm, color: Colors.ink400 },
+  rowLabel: { flex: 1, fontFamily: FontFamily.bodyBold, fontSize: FontSize.md, color: Colors.ink700 },
+  rowMission: { fontFamily: FontFamily.bodyBold, fontSize: FontSize.xs, color: Colors.textMuted },
 });

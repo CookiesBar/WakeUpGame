@@ -33,7 +33,8 @@
         "POST_NOTIFICATIONS",
         "VIBRATE",
         "WAKE_LOCK",
-        "RECEIVE_BOOT_COMPLETED"
+        "RECEIVE_BOOT_COMPLETED",
+        "ACTIVITY_RECOGNITION"
       ]
     },
     "web": {
@@ -65,7 +66,13 @@
         }
       ],
       "expo-asset",
-      "expo-localization"
+      "expo-localization",
+      [
+        "expo-sensors",
+        {
+          "motionPermission": "Wake Up Game counts your steps so you can walk to turn off your alarm."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

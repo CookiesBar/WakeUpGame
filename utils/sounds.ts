@@ -48,6 +48,13 @@ export function stopAlarmSound(): void {
   }
 }
 
+export const isAlarmPlaying = (): boolean => currentPlayer != null;
+
+/** 0–1. Lets the walk screen fade the alarm as the user makes progress. */
+export function setAlarmVolume(volume: number): void {
+  if (currentPlayer) currentPlayer.volume = volume;
+}
+
 /** Play a sound once for previewing in the sound picker. */
 export function previewSound(soundId: string): void {
   try {

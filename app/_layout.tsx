@@ -21,7 +21,12 @@ import 'react-native-reanimated';
 
 import { AlarmProvider } from '@/contexts/AlarmContext';
 import { LocaleProvider } from '@/contexts/LocaleContext';
-import { BURST_WINDOW_MS, cancelAlarmBurst } from '@/utils/notifications';
+import {
+  BURST_INTERVAL_MS,
+  BURST_WINDOW_MS,
+  cancelWakeCheck,
+  type NotifKind,
+} from '@/utils/notifications';
 import { configureRevenueCat } from '@/utils/revenueCat';
 import { initializeAudio, playAlarmSound } from '@/utils/sounds';
 
@@ -40,13 +45,14 @@ function handleAlarmNotification(notification: Notifications.Notification) {
     label?: string;
     time?: string;
     soundId?: string | null;
+    burstIndex?: number;
   };
   if (!data?.alarmId) return;
+  // Follow-ups are BURST_INTERVAL_MS apart, so this recovers when the first one rang.
+  const ringAt = notification.date - (Number(data.burstIndex) || 0) * BURST_INTERVAL_MS;
 
-  // The app is now handling the alarm (looping sound + ring screen), so the
-  // remaining OS-level burst notifications would only double up on it.
-  cancelAlarmBurst(data.alarmId).catch(() => undefined);
-
+  // The burst is deliberately left armed until the walk is done (dismissAlarm),
+  // so killing the app mid-walk doesn't silence the alarm.
   playAlarmSound(data.soundId ?? undefined);
   router.push({
     pathname: '/ring',
@@ -55,6 +61,7 @@ function handleAlarmNotification(notification: Notifications.Notification) {
       label: data.label ?? '',
       time: data.time ?? '',
       soundId: data.soundId ?? '',
+      ringAt: String(ringAt),
     },
   });
 }
@@ -93,9 +100,17 @@ export default function RootLayout() {
 
     // Dedupe per alarm within one ring window: the base notification and its
     // burst follow-ups all carry the same alarmId but distinct identifiers.
-    const handleSafe = (notification: Notifications.Notification) => {
-      const alarmId = (notification.request.content.data as { alarmId?: string })?.alarmId;
+    const handleSafe = (notification: Notifications.Notification, tapped: boolean) => {
+      const { alarmId, kind } = (notification.request.content.data ?? {}) as {
+        alarmId?: string;
+        kind?: NotifKind;
+      };
       if (!alarmId) return;
+      // "Still awake?": tapping it is the confirmation. Untapped, it just keeps ringing.
+      if (kind === 'check') {
+        if (tapped) cancelWakeCheck(alarmId).catch(() => undefined);
+        return;
+      }
       const now = Date.now();
       const last = lastHandledAt.current.get(alarmId);
       if (last !== undefined && now - last < BURST_WINDOW_MS) return;
@@ -103,12 +118,15 @@ export default function RootLayout() {
       handleAlarmNotification(notification);
     };
 
-    receivedSub.current = Notifications.addNotificationReceivedListener(handleSafe);
+    receivedSub.current = Notifications.addNotificationReceivedListener((n) =>
+      handleSafe(n, false)
+    );
     responseSub.current = Notifications.addNotificationResponseReceivedListener((r) =>
-      handleSafe(r.notification)
+      handleSafe(r.notification, true)
     );
     Notifications.getLastNotificationResponseAsync().then((r) => {
-      if (r) handleSafe(r.notification);
+      // Only a tap that just launched us; an old response would re-ring a finished alarm.
+      if (r && Date.now() - r.notification.date < BURST_WINDOW_MS) handleSafe(r.notification, true);
     });
 
     return () => {
@@ -130,16 +148,11 @@ export default function RootLayout() {
               name="alarm/[id]"
               options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
             />
+            <Stack.Screen name="day" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+            <Stack.Screen name="routine/new" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+            <Stack.Screen name="routine/[id]" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
             <Stack.Screen
               name="ring"
-              options={{
-                presentation: 'fullScreenModal',
-                gestureEnabled: false,
-                animation: 'fade',
-              }}
-            />
-            <Stack.Screen
-              name="game"
               options={{
                 presentation: 'fullScreenModal',
                 gestureEnabled: false,

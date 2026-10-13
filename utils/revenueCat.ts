@@ -48,3 +48,7 @@ export async function restorePurchases(): Promise<boolean> {
     return false;
   }
 }
+
+/** Opens the App Store's manage-subscriptions sheet; no-op where RevenueCat isn't configured. */
+export const manageSubscription = () =>
+  isConfigured ? Purchases.showManageSubscriptions().catch(() => {}) : undefined;
