@@ -16,6 +16,10 @@ export interface Repeating {
   /** 0 = Sunday … 6 = Saturday. Empty = rings once, at the next HH:MM. */
   days: number[];
   exceptions?: Exceptions;
+  /** Repeating only: ring every N weeks (missing = 1). */
+  everyWeeks?: number;
+  /** A day in a week that rings, when everyWeeks > 1. */
+  anchor?: string;
 }
 
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -55,12 +59,29 @@ export function withPause(ex: Exceptions | undefined, pausedUntil: string | null
   return out;
 }
 
+/** Monday of the week containing `d`. */
+export const mondayOf = (d: Date) => startOfDay(d, -((d.getDay() + 6) % 7));
+
+const sparse = (r: Repeating) => (r.everyWeeks ?? 1) > 1;
+
+/** Is `day` in a week that rings? Weeks run Monday–Sunday, counted from the anchor's week. */
+function onWeek(r: Repeating, day: Date): boolean {
+  if (!sparse(r)) return true;
+  const anchor = r.anchor ? new Date(`${r.anchor}T00:00`) : day;
+  const weeks = Math.round((mondayOf(day).getTime() - mondayOf(anchor).getTime()) / (7 * 86_400_000));
+  const n = r.everyWeeks!;
+  return ((weeks % n) + n) % n === 0;
+}
+
+/** Weeks to look ahead: long enough to hold a ringing week, however sparse. */
+const horizon = (r: Repeating) => Math.max(HORIZON_WEEKS, (r.everyWeeks ?? 1) + 1);
+
 /** Base (unchanged) occurrences on the days [from, from + days). */
 function bases(r: Repeating, from: Date, days: number): Date[] {
   const out: Date[] = [];
   for (let i = 0; i < days; i++) {
     const day = startOfDay(from, i);
-    if (r.days.includes(day.getDay())) out.push(at(day, r.time));
+    if (r.days.includes(day.getDay()) && onWeek(r, day)) out.push(at(day, r.time));
   }
   return out;
 }
@@ -74,7 +95,7 @@ export function nextFire(r: Repeating, now: Date): Date | null {
     return fire && fire > now ? fire : null;
   }
   // From yesterday: a late occurrence moved forward can still be ahead of us.
-  const fires = bases(r, startOfDay(now, -1), HORIZON_WEEKS * 7 + 2)
+  const fires = bases(r, startOfDay(now, -1), horizon(r) * 7 + 2)
     .map((b) => applyException(b, r.exceptions))
     .filter((f): f is Date => !!f && f > now);
   return fires[0] ?? null;
@@ -93,7 +114,9 @@ export interface TriggerPlan {
  * Which notifications to schedule. A weekday with no change in the next
  * HORIZON_WEEKS keeps its WEEKLY trigger; one with a change gets dated
  * triggers for the whole horizon instead, rebuilt on a later app launch.
- * ponytail: if the app isn't opened for HORIZON_WEEKS after a change, that weekday goes quiet.
+ * Every-N-weeks routines always get dated triggers, rebuilt after each ring.
+ * ponytail: if the app isn't opened for HORIZON_WEEKS after a change (or after an
+ * every-N-weeks ring), that weekday goes quiet.
  */
 export function planTriggers(r: Repeating, now: Date): TriggerPlan {
   if (r.days.length === 0) {
@@ -103,9 +126,9 @@ export function planTriggers(r: Repeating, now: Date): TriggerPlan {
   const plan: TriggerPlan = { weekly: [], dates: [] };
   const rebuild: number[] = [];
   for (const day of r.days) {
-    const own = bases({ ...r, days: [day] }, startOfDay(now, -1), HORIZON_WEEKS * 7 + 1);
+    const own = bases({ ...r, days: [day] }, startOfDay(now, -1), horizon(r) * 7 + 1);
     const changed = own.filter((b) => r.exceptions?.[dayKey(b)] !== undefined);
-    if (changed.length === 0) {
+    if (changed.length === 0 && !sparse(r)) {
       plan.weekly.push(day);
       continue;
     }
@@ -113,10 +136,14 @@ export function planTriggers(r: Repeating, now: Date): TriggerPlan {
       .map((b) => applyException(b, r.exceptions))
       .filter((f): f is Date => !!f && f > now);
     plan.dates.push(...fires);
-    // Rebuild the day after the last change, or a week before the dated run ends.
-    const lastChange = startOfDay(changed[changed.length - 1], 1).getTime();
-    const runOut = (fires[fires.length - 1]?.getTime() ?? now.getTime()) - 7 * 86_400_000;
-    rebuild.push(Math.min(lastChange, Math.max(runOut, now.getTime())));
+    // Rebuild the day after the last change, or a week before the dated run ends
+    // (every N weeks: the day after the next ring, to add the one after it).
+    const lastChange = changed.length ? startOfDay(changed[changed.length - 1], 1).getTime() : Infinity;
+    const due = sparse(r)
+      ? fires.length ? startOfDay(fires[0], 1).getTime() : Infinity
+      : Math.max((fires[fires.length - 1]?.getTime() ?? now.getTime()) - 7 * 86_400_000, now.getTime());
+    const when = Math.min(lastChange, due);
+    if (when < Infinity) rebuild.push(when);
   }
   plan.dates.sort((a, b) => a.getTime() - b.getTime());
   if (rebuild.length) plan.rebuildAt = Math.min(...rebuild);
@@ -127,7 +154,7 @@ export type DayState = 'normal' | 'moved' | 'skipped';
 
 /** How a routine's alarm at `time` looks on a given day, for the week strip and day sheet. */
 export function dayState(r: Repeating, day: Date): { state: DayState; fire: Date | null; base: Date } | null {
-  if (r.days.length && !r.days.includes(day.getDay())) return null;
+  if (r.days.length && (!r.days.includes(day.getDay()) || !onWeek(r, day))) return null;
   const base = at(day, r.time);
   const fire = applyException(base, r.exceptions);
   return { state: !fire ? 'skipped' : fire.getTime() === base.getTime() ? 'normal' : 'moved', fire, base };

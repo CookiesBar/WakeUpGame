@@ -16,7 +16,7 @@ import {
   requestNotificationPermissions,
   scheduleAlarmNotification,
 } from '@/utils/notifications';
-import { effectiveAlarm } from '@/utils/routines';
+import { effectiveAlarm, splitByDay } from '@/utils/routines';
 import { dayKey } from '@/utils/schedule';
 import {
   Alarm,
@@ -28,7 +28,6 @@ import {
   getPausedUntil,
   getRoutines,
   type Routine,
-  type RoutineKind,
   saveAlarm,
   setPausedUntil,
   toggleAlarm as toggleAlarmStorage,
@@ -51,15 +50,13 @@ interface AlarmContextValue {
   dismissAlarm: (id: string) => Promise<void>;
   refreshAlarms: () => Promise<void>;
   /** New routine with one starter alarm. */
-  addRoutine: (kind: RoutineKind, name: string, days: Weekday[]) => Promise<Routine>;
+  addRoutine: (name: string, days: Weekday[]) => Promise<Routine>;
   updateRoutine: (routine: Routine) => Promise<void>;
   removeRoutine: (id: string) => Promise<void>;
   toggleRoutine: (id: string) => Promise<void>;
   /** Skip or move (minutes) a routine on one day; null puts it back. A function gets the current change. */
   setDayChange: (routineId: string, day: string, change: DayChange | ((current: DayChange) => DayChange)) => Promise<void>;
   setPause: (until: string | null) => Promise<void>;
-  startNap: (routineId: string) => Promise<void>;
-  stopNap: (routineId: string) => Promise<void>;
   /** The alarm with its routine's days, switch, changes and pause applied. */
   effective: (alarm: Alarm) => Alarm;
 }
@@ -76,7 +73,6 @@ async function migrate(alarms: Alarm[], routines: Routine[]): Promise<boolean> {
     const routine: Routine = {
       id: generateId(),
       name: alarm.label,
-      kind: 'fixed',
       enabled: alarm.enabled,
       days: alarm.days,
       exceptions: {},
@@ -127,8 +123,23 @@ export const AlarmProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   useEffect(() => {
     (async () => {
       await requestNotificationPermissions();
-      const [all, allRoutines] = await Promise.all([getAlarms(), getRoutines()]);
-      if (await migrate(all, allRoutines)) await sync();
+      let [all, allRoutines] = await Promise.all([getAlarms(), getRoutines()]);
+      // Nap routines were removed; their steps have no real time (00:00), so drop any saved ones.
+      const naps = new Set(allRoutines.filter((r) => (r as { kind?: string }).kind === 'nap').map((r) => r.id));
+      if (naps.size) {
+        for (const a of all) if (a.routineId && naps.has(a.routineId)) await cancelAlarmNotification(a.id);
+        all = all.filter((a) => !a.routineId || !naps.has(a.routineId));
+        allRoutines = allRoutines.filter((r) => !naps.has(r.id));
+        await writeRoutines(allRoutines);
+        await writeAlarms(all);
+      }
+      const migrated = await migrate(all, allRoutines);
+      const split = splitByDay(allRoutines, all, generateId);
+      if (split) {
+        await writeRoutines(split.routines);
+        await writeAlarms(split.alarms);
+      }
+      if (migrated || split) await sync();
       await refreshAlarms();
       setLoading(false);
     })();
@@ -209,7 +220,7 @@ export const AlarmProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
       const allAlarms = await getAlarms();
       const own = allAlarms.filter((a) => a.routineId === id);
-      if (next?.kind === 'fixed') {
+      if (next) {
         // Days live on the routine; keep its alarms in step for anything that reads alarm.days.
         own.forEach((a) => (a.days = next.days));
         await writeAlarms(allAlarms);
@@ -238,11 +249,10 @@ export const AlarmProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   );
 
   const addRoutine = useCallback(
-    async (kind: RoutineKind, name: string, days: Weekday[]): Promise<Routine> => {
+    async (name: string, days: Weekday[]): Promise<Routine> => {
       const routine: Routine = {
         id: generateId(),
         name,
-        kind,
         enabled: true,
         days,
         exceptions: {},
@@ -250,18 +260,16 @@ export const AlarmProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         createdAt: Date.now(),
       };
       await writeRoutines([...(await getRoutines()), routine]);
-      const nap = kind === 'nap';
       await addAlarm({
         routineId: routine.id,
-        time: nap ? '00:00' : '07:00',
-        offsetMin: nap ? 20 : undefined,
+        time: '07:00',
         label: '',
         enabled: true,
-        days: nap ? [] : days,
+        days,
         soundId: DEFAULT_SOUND_ID,
-        steps: nap ? 20 : 50,
+        steps: 50,
         wakeCheck: false,
-        mission: nap ? 'walk' : 'math',
+        mission: 'math',
         mathLevel: DEFAULT_MATH_LEVEL,
       });
       return routine;
@@ -303,14 +311,6 @@ export const AlarmProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     [refreshAlarms, sync]
   );
 
-  const startNap = useCallback(
-    (id: string) => changeRoutine(id, (r) => ({ ...r, enabled: true, napStartedAt: Date.now() })),
-    [changeRoutine]
-  );
-  const stopNap = useCallback(
-    (id: string) => changeRoutine(id, (r) => ({ ...r, napStartedAt: undefined })),
-    [changeRoutine]
-  );
 
   const effective = useCallback(
     (alarm: Alarm) => effectiveAlarm(alarm, routines, pausedUntil),
@@ -336,8 +336,6 @@ export const AlarmProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         toggleRoutine,
         setDayChange,
         setPause,
-        startNap,
-        stopNap,
         effective,
       }}
     >

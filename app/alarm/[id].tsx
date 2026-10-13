@@ -22,6 +22,7 @@ import { useAlarms } from '@/contexts/AlarmContext';
 import { useLocale } from '@/contexts/LocaleContext';
 import { getNarrowWeekdays } from '@/i18n/weekdays';
 import { repeatLabel } from '@/utils/repeatLabel';
+import { repeatOf } from '@/utils/routines';
 import { previewSound, stopPreviewSound } from '@/utils/sounds';
 import {
   DEFAULT_MATH_LEVEL,
@@ -29,7 +30,6 @@ import {
   getAlarm,
   MATH_LEVELS,
   MISSIONS,
-  NAP_OFFSETS,
   STEP_OPTIONS,
   type Mission,
   type Weekday,
@@ -68,9 +68,7 @@ export default function AlarmEditorScreen() {
   const [expanded, setExpanded] = useState<Row>(null);
   const [loaded, setLoaded] = useState(isNew);
   const [routineId, setRoutineId] = useState(newRoutineId);
-  const [offsetMin, setOffsetMin] = useState(20);
   const routine = routines.find((r) => r.id === routineId);
-  const nap = routine?.kind === 'nap';
   const isLastStep = !!routine && alarms.filter((a) => a.routineId === routine.id).length <= 1;
 
   useEffect(() => {
@@ -89,7 +87,6 @@ export default function AlarmEditorScreen() {
         setMission(alarm.mission ?? 'walk');
         setMathLevel(alarm.mathLevel ?? DEFAULT_MATH_LEVEL);
         setRoutineId(alarm.routineId);
-        setOffsetMin(alarm.offsetMin ?? 20);
       }
       setLoaded(true);
     })();
@@ -107,10 +104,9 @@ export default function AlarmEditorScreen() {
       time,
       label: label.trim(),
       enabled: true,
-      // Days come from the routine; nap steps get a clock time when the nap starts.
-      days: routine ? (nap ? [] : routine.days) : ([...days].sort() as Weekday[]),
+      // Days come from the routine.
+      days: routine ? routine.days : ([...days].sort() as Weekday[]),
       routineId,
-      offsetMin: nap ? offsetMin : undefined,
       soundId,
       steps,
       wakeCheck,
@@ -155,27 +151,6 @@ export default function AlarmEditorScreen() {
         </View>
 
         <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
-          {nap ? (
-            <View style={[styles.card, styles.rowStacked, { marginVertical: Spacing.lg }]}>
-              <Text style={styles.rowLabel}>{t('alarmEditor.offset')}</Text>
-              <View style={styles.offsets}>
-                {NAP_OFFSETS.map((m) => (
-                  <Pressable
-                    key={m}
-                    style={[styles.offset, m === offsetMin && styles.segmentItemOn]}
-                    onPress={() => setOffsetMin(m)}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: m === offsetMin }}
-                  >
-                    <Text style={[styles.segmentText, m === offsetMin && styles.segmentTextOn]}>
-                      {t('alarmEditor.offsetValue', { m })}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-            </View>
-          ) : (
-          <>
           {/* Time wheel */}
           <View style={styles.wheelWrap}>
             <View style={styles.band} pointerEvents="none" />
@@ -206,10 +181,8 @@ export default function AlarmEditorScreen() {
           </View>
 
           <Text style={styles.ringsIn} accessibilityLiveRegion="polite">
-            {ringsIn(t, nextOccurrence({ time, days: routine ? routine.days : days }), now)}
+            {ringsIn(t, nextOccurrence(routine ? { time, ...repeatOf(routine), exceptions: routine.exceptions } : { time, days }), now)}
           </Text>
-          </>
-          )}
 
           {/* Settings card */}
           <View style={styles.card}>
@@ -498,16 +471,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   segmentFull: { alignSelf: 'stretch' },
-  offsets: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
-  offset: {
-    minWidth: 76,
-    minHeight: 44,
-    paddingHorizontal: Spacing.md,
-    borderRadius: BorderRadius.pill,
-    backgroundColor: Colors.blue50,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   segmentItemFull: { flex: 1 },
   segmentItemOn: { backgroundColor: Colors.primary },
   segmentText: { fontFamily: FontFamily.display, fontSize: 15, color: Colors.blue700 },

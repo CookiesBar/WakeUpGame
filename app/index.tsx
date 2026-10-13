@@ -12,8 +12,8 @@ import { useAlarms } from '@/contexts/AlarmContext';
 import { useLocale } from '@/contexts/LocaleContext';
 import { missionLabel } from '@/utils/repeatLabel';
 import { stepsOf } from '@/utils/routines';
-import { dayKey, dayState, type DayState, hhmm, nextFire, startOfDay, withPause } from '@/utils/schedule';
-import type { Alarm, Routine } from '@/utils/storage';
+import { dayKey, dayState, type DayState, hhmm, mondayOf, nextFire, startOfDay } from '@/utils/schedule';
+import type { Alarm, Routine, Weekday } from '@/utils/storage';
 import { formatTime, use24h, useNow } from '@/utils/time';
 
 interface DayAlarm {
@@ -25,14 +25,11 @@ interface DayAlarm {
   base: Date;
 }
 
-/** Monday of the week containing `d`. */
-const mondayOf = (d: Date) => startOfDay(d, -((d.getDay() + 6) % 7));
-
 /** Center of a timeline node: half the row's min height. */
 const NODE_Y = 22;
 
 export default function HomeScreen() {
-  const { alarms, routines, pausedUntil, toggleRoutine, effective } = useAlarms();
+  const { alarms, routines, addRoutine, toggleRoutine, effective } = useAlarms();
   const { t, locale } = useLocale();
   const h24 = use24h();
   const now = new Date(useNow());
@@ -55,7 +52,7 @@ export default function HomeScreen() {
   /** Every fixed-time alarm that belongs to `d`, with its skip/move applied. */
   const alarmsOn = (d: Date): DayAlarm[] =>
     routines
-      .filter((r) => r.kind === 'fixed' && r.enabled)
+      .filter((r) => r.enabled)
       .flatMap((routine) =>
         stepsOf(routine, alarms)
           .filter((a) => a.enabled)
@@ -65,10 +62,7 @@ export default function HomeScreen() {
               const at = nextFire(effective(alarm), now);
               return at && dayKey(at) === dayKey(d) ? [{ alarm, routine, state: 'normal' as DayState, at, base: at }] : [];
             }
-            const s = dayState(
-              { ...alarm, days: routine.days, exceptions: withPause(routine.exceptions, pausedUntil, now) },
-              d
-            );
+            const s = dayState(effective(alarm), d);
             return s ? [{ alarm, routine, state: s.state, at: s.fire ?? s.base, base: s.base }] : [];
           })
       )
@@ -91,9 +85,7 @@ export default function HomeScreen() {
           <Text style={styles.date} accessibilityRole="header">
             {now.toLocaleDateString(locale, { weekday: 'short', day: 'numeric', month: 'short' })}
           </Text>
-          <Pressable style={styles.addButton} onPress={() => router.push('/routine/new')} hitSlop={8} accessibilityLabel={t('newRoutine.title')}>
-            <Ionicons name="add" size={28} color={Colors.onBrand} />
-          </Pressable>
+          <View style={styles.headerSpacer} />
         </View>
 
         <ScrollView contentContainerStyle={styles.scroll}>
@@ -129,12 +121,8 @@ export default function HomeScreen() {
                     isToday && styles.dayToday,
                     on && styles.dayOn,
                   ]}
-                  // An empty day goes straight to making a routine for it.
-                  onPress={() =>
-                    empty
-                      ? router.push({ pathname: '/routine/new', params: { weekday: String(d.getDay()) } })
-                      : setSelected(key)
-                  }
+                  // An empty day just gets selected; its "Add a routine" card does the rest.
+                  onPress={() => setSelected(key)}
                   accessibilityRole="button"
                   accessibilityState={{ selected: on }}
                   accessibilityLabel={[
@@ -174,10 +162,22 @@ export default function HomeScreen() {
           </View>
 
           {byRoutine.length === 0 && (
-            <Pressable style={styles.empty} onPress={() => router.push('/routine/new')} accessibilityRole="button">
+            <View style={styles.empty}>
               <Text style={styles.emptyText}>{t('home.noAlarms', { day: dayName })}</Text>
-              <Text style={styles.link}>{t('home.addRoutine')}</Text>
-            </Pressable>
+              <Pressable
+                style={styles.addRoutine}
+                onPress={async () => {
+                  const routine = await addRoutine(t('routines.defaultName', { day: dayName }), [
+                    day.getDay() as Weekday,
+                  ]);
+                  router.push({ pathname: '/routine/[id]', params: { id: routine.id } });
+                }}
+                accessibilityRole="button"
+              >
+                <Ionicons name="add" size={20} color={Colors.onBrand} />
+                <Text style={styles.addRoutineText}>{t('home.addRoutine')}</Text>
+              </Pressable>
+            </View>
           )}
 
           {byRoutine.map((routine) => {
@@ -247,15 +247,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  addButton: {
-    width: 44,
-    height: 44,
-    borderRadius: BorderRadius.pill,
-    backgroundColor: Colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...Shadow.blue,
-  },
+  headerSpacer: { width: 44 },
   scroll: { paddingHorizontal: Spacing.xl, paddingBottom: Spacing['3xl'], gap: Spacing.lg },
 
   clockWrap: { alignItems: 'center' },
@@ -287,13 +279,24 @@ const styles = StyleSheet.create({
 
   empty: {
     alignItems: 'center',
-    gap: Spacing.xs,
+    gap: Spacing.md,
     padding: Spacing.xl,
     borderRadius: BorderRadius.xl,
     borderWidth: 2,
     borderStyle: 'dashed',
     borderColor: Colors.ink200,
   },
+  addRoutine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    minHeight: 44,
+    paddingHorizontal: Spacing.xl,
+    borderRadius: BorderRadius.pill,
+    backgroundColor: Colors.primary,
+    ...Shadow.blue,
+  },
+  addRoutineText: { fontFamily: FontFamily.bodyBold, fontSize: FontSize.md, color: Colors.onBrand },
   emptyText: { fontFamily: FontFamily.bodyBold, fontSize: FontSize.md, color: Colors.textMuted },
 
   card: {

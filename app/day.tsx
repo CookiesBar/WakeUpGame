@@ -7,9 +7,8 @@ import ScreenBackground from '@/components/ScreenBackground';
 import { BorderRadius, Colors, FontFamily, FontSize, Shadow, Spacing } from '@/constants/theme';
 import { useAlarms } from '@/contexts/AlarmContext';
 import { useLocale } from '@/contexts/LocaleContext';
-import { stepsOf } from '@/utils/routines';
+import { repeatOf, stepsOf } from '@/utils/routines';
 import { dayState, hhmm } from '@/utils/schedule';
-import type { Weekday } from '@/utils/storage';
 import { formatTime, use24h } from '@/utils/time';
 
 const STEP_MIN = 15;
@@ -27,10 +26,10 @@ export default function DayScreen() {
   };
 
   const rows = routines
-    .filter((r) => r.kind === 'fixed' && r.enabled && r.days.includes(day.getDay() as Weekday))
+    .filter((r) => r.enabled && r.days.length > 0)
     .flatMap((r) => {
       const first = stepsOf(r, alarms)[0];
-      const s = first && dayState({ ...first, days: r.days, exceptions: r.exceptions }, day);
+      const s = first && dayState({ ...first, ...repeatOf(r), exceptions: r.exceptions }, day);
       return s ? [{ routine: r, ...s, change: r.exceptions?.[date] }] : [];
     });
 

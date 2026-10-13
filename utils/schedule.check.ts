@@ -1,6 +1,6 @@
 // Run: node utils/schedule.check.ts
 import assert from 'node:assert';
-import { dayKey, nextFire, planTriggers, withPause, type Repeating } from './schedule.ts';
+import { dayKey, dayState, nextFire, planTriggers, withPause, type Repeating } from './schedule.ts';
 
 // Monday 13 Oct 2025, 05:00 local.
 const mon = new Date(2025, 9, 13, 5, 0);
@@ -39,5 +39,19 @@ const once: Repeating = { time: '04:00', days: [] };
 assert.strictEqual(nextFire(once, mon)?.getTime(), new Date(2025, 9, 14, 4, 0).getTime());
 assert.strictEqual(nextFire({ ...once, exceptions: { '2025-10-14': 'skip' } }, mon), null);
 assert.deepStrictEqual(planTriggers({ ...once, exceptions: { '2025-10-14': 'skip' } }, mon).dates, []);
+
+// Every 2 weeks, anchored on this week: rings Mon 13 + Mon 27, not Mon 20.
+const fortnight: Repeating = { time: '06:45', days: [1], everyWeeks: 2, anchor: '2025-10-15' };
+assert.ok(dayState(fortnight, new Date(2025, 9, 27)) && !dayState(fortnight, new Date(2025, 9, 20)));
+assert.strictEqual(nextFire(fortnight, new Date(2025, 9, 13, 7, 0))?.getTime(), new Date(2025, 9, 27, 6, 45).getTime());
+plan = planTriggers(fortnight, mon);
+assert.deepStrictEqual(plan.weekly, [], 'never weekly');
+assert.deepStrictEqual(plan.dates.map(dayKey), ['2025-10-13', '2025-10-27']);
+assert.strictEqual(plan.rebuildAt, new Date(2025, 9, 14).getTime(), 'rebuild after the next ring');
+
+// Every 12 weeks still finds the next ring, 12 weeks on.
+const quarterly: Repeating = { time: '06:45', days: [1], everyWeeks: 12, anchor: '2025-10-06' };
+assert.strictEqual(nextFire(quarterly, mon)?.getTime(), new Date(2025, 11, 29, 6, 45).getTime());
+assert.deepStrictEqual(planTriggers(quarterly, mon).dates.map(dayKey), ['2025-12-29']);
 
 console.log('schedule ok');

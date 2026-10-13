@@ -149,7 +149,6 @@ export default function RootLayout() {
               options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
             />
             <Stack.Screen name="day" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
-            <Stack.Screen name="routine/new" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
             <Stack.Screen name="routine/[id]" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
             <Stack.Screen
               name="ring"

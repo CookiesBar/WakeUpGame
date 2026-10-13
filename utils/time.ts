@@ -2,8 +2,7 @@ import { useCalendars } from 'expo-localization';
 import { useEffect, useState } from 'react';
 
 import type { Translate } from '@/i18n';
-import { nextFire } from './schedule.ts';
-import type { Alarm } from './storage';
+import { nextFire, type Repeating } from './schedule.ts';
 
 export function nextDateFor(hour: number, minute: number): Date {
   const now = new Date();
@@ -14,7 +13,7 @@ export function nextDateFor(hour: number, minute: number): Date {
 }
 
 /** Next time this alarm fires (skips/moves included); the plain next HH:MM if everything is skipped. */
-export function nextOccurrence(alarm: Pick<Alarm, 'time' | 'days' | 'exceptions'>): Date {
+export function nextOccurrence(alarm: Repeating): Date {
   const [hour, minute] = alarm.time.split(':').map(Number);
   return nextFire(alarm, new Date()) ?? nextDateFor(hour, minute);
 }

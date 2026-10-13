@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -9,43 +9,50 @@ import Toggle from '@/components/Toggle';
 import { BorderRadius, Colors, FontFamily, FontSize, Shadow, Spacing } from '@/constants/theme';
 import { useAlarms } from '@/contexts/AlarmContext';
 import { useLocale } from '@/contexts/LocaleContext';
-import { getNarrowWeekdays } from '@/i18n/weekdays';
 import { missionLabel } from '@/utils/repeatLabel';
 import { stepsOf } from '@/utils/routines';
-import type { Weekday } from '@/utils/storage';
+import { dayKey, nextFire } from '@/utils/schedule';
 import { formatTime, use24h } from '@/utils/time';
 
-/** Name, days and level-up for a routine; its alarms open in the alarm editor. */
+const MAX_WEEKS = 12;
+
+/** Name, alarms, every-N-weeks and level-up for a routine; its alarms open in the alarm editor. */
 export default function RoutineEditorScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { alarms, routines, updateRoutine, removeRoutine } = useAlarms();
   const { t, locale } = useLocale();
   const h24 = use24h();
-  const dayLabels = useMemo(() => getNarrowWeekdays(locale), [locale]);
   const routine = routines.find((r) => r.id === id);
 
   const [name, setName] = useState('');
-  const [days, setDays] = useState<Weekday[]>([]);
   const [levelUp, setLevelUp] = useState(true);
+  const [everyWeeks, setEveryWeeks] = useState(1);
   const [loaded, setLoaded] = useState(false);
+  const todayKey = dayKey(new Date());
 
   useEffect(() => {
     if (!routine || loaded) return;
     setName(routine.name);
-    setDays(routine.days);
     setLevelUp(routine.levelUp);
+    setEveryWeeks(routine.everyWeeks ?? 1);
     setLoaded(true);
   }, [routine, loaded]);
 
   if (!routine) return <ScreenBackground><View /></ScreenBackground>;
-  const nap = routine.kind === 'nap';
+  const { days } = routine;
   const steps = stepsOf(routine, alarms);
-
-  const toggleDay = (d: Weekday) =>
-    setDays((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d].sort()));
+  const sparse = days.length > 0 && everyWeeks > 1;
+  const anchor = routine.anchor ?? todayKey;
+  const nextRing = sparse && steps[0] ? nextFire({ time: steps[0].time, days, everyWeeks, anchor }, new Date()) : null;
 
   const save = async () => {
-    await updateRoutine({ ...routine, name: name.trim(), days, levelUp });
+    await updateRoutine({
+      ...routine,
+      name: name.trim(),
+      levelUp,
+      everyWeeks: sparse ? everyWeeks : undefined,
+      anchor: sparse ? anchor : undefined,
+    });
     router.back();
   };
 
@@ -73,7 +80,7 @@ export default function RoutineEditorScreen() {
           <Pressable onPress={() => router.back()} hitSlop={8}>
             <Text style={styles.cancel}>{t('common.cancel')}</Text>
           </Pressable>
-          <Text style={styles.headerTitle}>{t(`routines.kind_${routine.kind}`)}</Text>
+          <Text style={styles.headerTitle}>{t('routines.fallback')}</Text>
           <Pressable onPress={save} hitSlop={8}>
             <Text style={styles.save}>{t('common.save')}</Text>
           </Pressable>
@@ -91,33 +98,16 @@ export default function RoutineEditorScreen() {
               maxLength={40}
               accessibilityLabel={t('routineEditor.name')}
             />
-            <Text style={styles.label}>{nap ? t('routineEditor.napDays') : t('routineEditor.days')}</Text>
-            <View style={styles.daysRow}>
-              {dayLabels.map((d, i) => {
-                const active = days.includes(i as Weekday);
-                return (
-                  <Pressable
-                    key={i}
-                    style={[styles.dayChip, active && styles.dayChipOn]}
-                    onPress={() => toggleDay(i as Weekday)}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: active }}
-                  >
-                    <Text style={[styles.dayText, active && styles.dayTextOn]}>{d}</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
           </View>
 
           <View style={styles.card}>
-            <Text style={styles.label}>{nap ? t('routineEditor.steps') : t('routineEditor.alarms')}</Text>
+            <Text style={styles.label}>{t('routineEditor.alarms')}</Text>
             {steps.map((a) => {
               const time = formatTime(a.time, h24);
               return (
                 <Pressable key={a.id} style={styles.step} onPress={() => router.push(`/alarm/${a.id}`)}>
                   <Text style={styles.stepTime}>
-                    {nap ? t('alarmEditor.offsetValue', { m: a.offsetMin ?? 0 }) : `${time.display} ${time.meridiem}`.trim()}
+                    {`${time.display} ${time.meridiem}`.trim()}
                   </Text>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.stepLabel} numberOfLines={1}>{a.label || t('common.alarmFallback')}</Text>
@@ -133,9 +123,48 @@ export default function RoutineEditorScreen() {
               accessibilityRole="button"
             >
               <Ionicons name="add" size={20} color={Colors.primary} />
-              <Text style={styles.addText}>{nap ? t('routineEditor.addStep') : t('routineEditor.addAlarm')}</Text>
+              <Text style={styles.addText}>{t('routineEditor.addAlarm')}</Text>
             </Pressable>
           </View>
+
+          {days.length > 0 && (
+            <View style={styles.card}>
+              {/* Fixed routines belong to one weekday (see splitByDay). 1 Jan 2023 was a Sunday. */}
+              <Text style={[styles.label, styles.capital]}>
+                {new Date(2023, 0, 1 + days[0]).toLocaleDateString(locale, { weekday: 'long' })}
+              </Text>
+              <View style={styles.stepper}>
+                <Pressable
+                  style={styles.stepperButton}
+                  onPress={() => setEveryWeeks((n) => Math.max(1, n - 1))}
+                  disabled={everyWeeks <= 1}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('routineEditor.moreOften')}
+                >
+                  <Ionicons name="remove" size={22} color={everyWeeks <= 1 ? Colors.ink200 : Colors.primary} />
+                </Pressable>
+                <Text style={styles.stepperValue} accessibilityLiveRegion="polite">
+                  {everyWeeks === 1 ? t('routineEditor.everyWeek') : t('routineEditor.everyNWeeks', { count: everyWeeks })}
+                </Text>
+                <Pressable
+                  style={styles.stepperButton}
+                  onPress={() => setEveryWeeks((n) => Math.min(MAX_WEEKS, n + 1))}
+                  disabled={everyWeeks >= MAX_WEEKS}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('routineEditor.lessOften')}
+                >
+                  <Ionicons name="add" size={22} color={everyWeeks >= MAX_WEEKS ? Colors.ink200 : Colors.primary} />
+                </Pressable>
+              </View>
+              {sparse && nextRing && (
+                <Text style={styles.rowHint}>
+                  {t('routineEditor.nextRing', {
+                    date: nextRing.toLocaleDateString(locale, { weekday: 'short', day: 'numeric', month: 'short' }),
+                  })}
+                </Text>
+              )}
+            </View>
+          )}
 
           <View style={[styles.card, styles.row]}>
             <View style={{ flex: 1, paddingRight: Spacing.md }}>
@@ -189,20 +218,17 @@ const styles = StyleSheet.create({
     fontSize: FontSize.md,
     color: Colors.ink900,
   },
-  daysRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  dayChip: {
-    width: 40,
-    height: 44,
-    borderRadius: BorderRadius.pill,
+  capital: { textTransform: 'capitalize' },
+  stepper: {
+    flexDirection: 'row',
+    alignItems: 'center',
     borderWidth: 2,
     borderColor: Colors.borderHairline,
+    borderRadius: BorderRadius.pill,
     backgroundColor: Colors.white,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
-  dayChipOn: { backgroundColor: Colors.primary, borderColor: Colors.primary },
-  dayText: { fontFamily: FontFamily.display, fontSize: 15, color: Colors.textMuted },
-  dayTextOn: { color: Colors.onBrand },
+  stepperButton: { width: 48, height: 44, alignItems: 'center', justifyContent: 'center' },
+  stepperValue: { flex: 1, textAlign: 'center', fontFamily: FontFamily.bodyBold, fontSize: FontSize.md, color: Colors.ink900 },
   step: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, minHeight: 52 },
   stepTime: { width: 84, fontFamily: FontFamily.displayBold, fontSize: FontSize.lg, color: Colors.ink900 },
   stepLabel: { fontFamily: FontFamily.bodyBold, fontSize: FontSize.md, color: Colors.ink700 },

@@ -34,36 +34,33 @@ export interface Alarm {
   mathLevel?: MathLevel;
   /** The routine this alarm is a step of. Missing only on pre-routines alarms, before migration. */
   routineId?: string;
-  /** Nap routines: minutes after the nap starts. `time` is filled in when the nap starts. */
-  offsetMin?: number;
   /** On-time wakes in a row toward the next difficulty bump. */
   levelProgress?: number;
   /** Scheduling-only: the routine's one-off changes and pause. Never stored. */
   exceptions?: Exceptions;
+  /** Scheduling-only, from the routine (see Routine). Never stored. */
+  everyWeeks?: number;
+  anchor?: string;
   createdAt: number;
 }
-
-/** 'fixed' = clock times on chosen days (no days = once). 'nap' = steps counted from when you start it. */
-export type RoutineKind = 'fixed' | 'nap';
 
 /** A named group of alarms (VariAlarm-style profile): one switch, one set of days, one-off changes. */
 export interface Routine {
   id: string;
   name: string;
-  kind: RoutineKind;
   enabled: boolean;
-  /** Fixed: repeat days, copied onto its alarms. Nap: reminder days, display only. */
+  /** Its one weekday (empty = rings once, at the next HH:MM), copied onto its alarms. */
   days: Weekday[];
   /** Skip / move single days, keyed by local "YYYY-MM-DD". */
   exceptions: Exceptions;
+  /** Ring every N weeks. Missing = every week. */
+  everyWeeks?: number;
+  /** A day ("YYYY-MM-DD") in a week that rings, when everyWeeks > 1. */
+  anchor?: string;
   /** Make the game harder after LEVEL_UP_AFTER on-time wakes. */
   levelUp: boolean;
-  /** Nap routines: epoch ms of the running nap's start. */
-  napStartedAt?: number;
   createdAt: number;
 }
-
-export const NAP_OFFSETS = [10, 15, 20, 25, 30, 45, 60] as const;
 
 export const STEP_OPTIONS = [20, 50, 100] as const;
 export const DEFAULT_STEPS = 50;
@@ -88,8 +85,11 @@ export async function getAlarms(): Promise<Alarm[]> {
 }
 
 export async function writeAlarms(alarms: Alarm[]): Promise<void> {
-  // `exceptions` is derived from the routine at schedule time; never persist it.
-  await AsyncStorage.setItem(ALARMS_KEY, JSON.stringify(alarms.map(({ exceptions, ...a }) => a)));
+  // These are derived from the routine at schedule time; never persist them.
+  await AsyncStorage.setItem(
+    ALARMS_KEY,
+    JSON.stringify(alarms.map(({ exceptions, everyWeeks, anchor, ...a }) => a))
+  );
 }
 
 export async function saveAlarm(alarm: Alarm): Promise<void> {
