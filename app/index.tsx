@@ -1,9 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import Pressable from '@/components/Pressable';
 import AlarmClock from '@/components/AlarmClock';
 import ScreenBackground from '@/components/ScreenBackground';
 import Toggle from '@/components/Toggle';
@@ -24,9 +25,6 @@ interface DayAlarm {
   at: Date;
   base: Date;
 }
-
-/** Center of a timeline node: half the row's min height. */
-const NODE_Y = 22;
 
 export default function HomeScreen() {
   const { alarms, routines, addRoutine, toggleRoutine, effective } = useAlarms();
@@ -72,6 +70,8 @@ export default function HomeScreen() {
   const ringing = todays.filter((d) => d.state !== 'skipped');
   const passed = (d: DayAlarm) => d.state !== 'skipped' && d.at.getTime() <= now.getTime();
   const byRoutine = [...new Set(todays.map((d) => d.routine))];
+  /** The alarm that rings next, if it's on the day shown. */
+  const nextId = selected === today ? ringing.find((d) => d.at.getTime() > now.getTime())?.alarm.id : undefined;
   const dayName = day.toLocaleDateString(locale, { weekday: 'long' });
   const size = Math.min(width - Spacing.xl * 4, 300);
 
@@ -79,7 +79,7 @@ export default function HomeScreen() {
     <ScreenBackground>
       <SafeAreaView style={styles.safe} edges={['top']}>
         <View style={styles.header}>
-          <Pressable style={styles.iconButton} onPress={() => router.push('/settings')} hitSlop={8} accessibilityLabel={t('settings.title')}>
+          <Pressable style={styles.iconButton} onPress={() => router.push('/settings')} hitSlop={8} accessibilityRole="button" accessibilityLabel={t('settings.title')}>
             <Ionicons name="settings-outline" size={22} color={Colors.ink700} />
           </Pressable>
           <Text style={styles.date} accessibilityRole="header">
@@ -187,36 +187,50 @@ export default function HomeScreen() {
                 <Pressable
                   style={styles.cardHead}
                   onPress={() => router.push({ pathname: '/routine/[id]', params: { id: routine.id } })}
+                  accessibilityRole="button"
                 >
                   <Text style={styles.cardName} numberOfLines={1}>{nameOf(routine)}</Text>
                   <Toggle checked={routine.enabled} onChange={() => toggleRoutine(routine.id)} />
                 </Pressable>
-                <View>
-                  {rows.length > 1 && <View style={[styles.line, { top: NODE_Y, bottom: NODE_Y }]} />}
-                  {rows.map((d) => {
-                    const done = passed(d);
-                    return (
-                      <Pressable
-                        key={d.alarm.id}
-                        style={styles.row}
-                        onPress={() => router.push(`/alarm/${d.alarm.id}`)}
-                        accessibilityState={{ checked: done }}
+                {rows.map((d) => {
+                  const done = passed(d);
+                  const skipped = d.state === 'skipped';
+                  const next = d.alarm.id === nextId;
+                  const sub = [
+                    missionLabel(d.alarm, t),
+                    d.state === 'moved' && t('home.movedFrom', { time: clock(d.base, true) }),
+                    skipped && t('home.skipped'),
+                  ]
+                    .filter(Boolean)
+                    .join(' · ');
+                  return (
+                    <Pressable
+                      key={d.alarm.id}
+                      style={styles.row}
+                      onPress={() => router.push(`/alarm/${d.alarm.id}`)}
+                      accessibilityRole="button"
+                    >
+                      <Text
+                        style={[styles.rowTime, next && styles.rowTimeNext, (done || skipped) && styles.faded, skipped && styles.struck]}
+                        numberOfLines={1}
                       >
-                        <View style={[styles.node, done && styles.nodeDone]}>
-                          {done && <Ionicons name="checkmark" size={12} color={Colors.onBrand} />}
-                        </View>
-                        <Text style={[styles.rowTime, (done || d.state === 'skipped') && styles.faded, d.state === 'skipped' && styles.struck]}>
-                          {clock(d.at)}
-                        </Text>
-                        {d.state === 'moved' && <Text style={[styles.was, styles.struck]}>{clock(d.base, true)}</Text>}
-                        <Text style={[styles.rowLabel, done && styles.faded]} numberOfLines={1}>
+                        {clock(d.at)}
+                      </Text>
+                      <View style={styles.rowText}>
+                        <Text style={[styles.rowLabel, (done || skipped) && styles.faded]} numberOfLines={1}>
                           {d.alarm.label || t('common.alarmFallback')}
                         </Text>
-                        <Text style={styles.rowMission} numberOfLines={1}>{missionLabel(d.alarm, t)}</Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
+                        <Text style={styles.rowSub} numberOfLines={1}>{sub}</Text>
+                      </View>
+                      {next && (
+                        <View style={styles.nextTag}>
+                          <Text style={styles.nextText}>{t('home.next')}</Text>
+                        </View>
+                      )}
+                      {done && <Text style={styles.rang}>{t('home.rang')}</Text>}
+                    </Pressable>
+                  );
+                })}
               </View>
             );
           })}
@@ -270,7 +284,7 @@ const styles = StyleSheet.create({
   dayOn: { backgroundColor: Colors.primary, borderColor: Colors.primary, borderStyle: 'solid' },
   dayName: { fontFamily: FontFamily.bodyBold, fontSize: FontSize.xs, color: Colors.textMuted },
   dayNum: { fontFamily: FontFamily.displayBold, fontSize: FontSize.lg, color: Colors.ink900 },
-  dayFirst: { fontFamily: FontFamily.bodyBold, fontSize: 11, color: Colors.ink700, height: 16 },
+  dayFirst: { fontVariant: ['tabular-nums'], fontFamily: FontFamily.bodyBold, fontSize: 11, color: Colors.ink700, height: 16 },
   dayTextOn: { color: Colors.onBrand },
 
   dayHead: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' },
@@ -308,31 +322,35 @@ const styles = StyleSheet.create({
   },
   cardHead: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, paddingVertical: Spacing.md },
   cardName: { flex: 1, fontFamily: FontFamily.displayBold, fontSize: FontSize.lg, color: Colors.ink900 },
-  // Dotted spine joining the timeline nodes; a 2px-wide box because one-sided dotted borders don't render on iOS.
-  line: {
-    position: 'absolute',
-    left: 8,
-    width: 2,
-    borderWidth: 1,
-    borderStyle: 'dotted',
-    borderColor: Colors.ink400,
-  },
-  row: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, minHeight: NODE_Y * 2 },
-  node: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    borderWidth: 2,
-    borderColor: Colors.primary,
-    backgroundColor: Colors.white,
+  row: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: Spacing.md,
+    minHeight: 60,
+    paddingVertical: Spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: Colors.ink100,
   },
-  nodeDone: { backgroundColor: Colors.ink400, borderColor: Colors.ink400 },
-  rowTime: { fontFamily: FontFamily.displayBold, fontSize: FontSize.lg, color: Colors.ink900 },
+  rowTime: {
+    width: 84,
+    fontVariant: ['tabular-nums'],
+    fontFamily: FontFamily.displayBold,
+    fontSize: FontSize.lg,
+    color: Colors.ink900,
+  },
+  rowTimeNext: { fontSize: FontSize.h3, color: Colors.primary },
   faded: { color: Colors.ink400 },
   struck: { textDecorationLine: 'line-through' },
-  was: { fontFamily: FontFamily.display, fontSize: FontSize.sm, color: Colors.ink400 },
-  rowLabel: { flex: 1, fontFamily: FontFamily.bodyBold, fontSize: FontSize.md, color: Colors.ink700 },
-  rowMission: { fontFamily: FontFamily.bodyBold, fontSize: FontSize.xs, color: Colors.textMuted },
+  rowText: { flex: 1, gap: 2 },
+  rowLabel: { fontFamily: FontFamily.bodyBold, fontSize: FontSize.md, color: Colors.ink700 },
+  rowSub: { fontFamily: FontFamily.bodyMedium, fontSize: FontSize.xs, color: Colors.textMuted },
+  nextTag: {
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.sm,
+    borderWidth: 1.5,
+    borderColor: Colors.primary,
+  },
+  nextText: { fontFamily: FontFamily.bodyBold, fontSize: FontSize.xs, color: Colors.primary },
+  rang: { fontFamily: FontFamily.bodyBold, fontSize: FontSize.xs, color: Colors.ink400 },
 });

@@ -4,7 +4,7 @@ import { useKeepAwake } from 'expo-keep-awake';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Accelerometer, Pedometer } from 'expo-sensors';
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
-import { BackHandler, Dimensions, Pressable, StyleSheet, Text, View } from 'react-native';
+import { BackHandler, Dimensions, StyleSheet, Text, View } from 'react-native';
 import ConfettiCannon from 'react-native-confetti-cannon';
 import Animated, {
   Easing,
@@ -15,6 +15,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import Pressable from '@/components/Pressable';
 import Mascot from '@/components/Mascot';
 import { BorderRadius, Colors, FontFamily, FontSize, Spacing } from '@/constants/theme';
 import { useAlarms } from '@/contexts/AlarmContext';

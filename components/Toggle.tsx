@@ -32,7 +32,10 @@ export default function Toggle({
   });
 
   return (
-    <Pressable onPress={() => onChange(!checked)} hitSlop={6}>
+    <Pressable onPress={() => onChange(!checked)}
+      hitSlop={6}
+      accessibilityRole="switch"
+      aria-checked={checked}>
       <Animated.View style={[styles.track, { backgroundColor: bg }]}>
         <Animated.View style={[styles.knob, { left }]} />
       </Animated.View>
@@ -53,7 +56,7 @@ const styles = StyleSheet.create({
     height: K,
     borderRadius: K / 2,
     backgroundColor: Colors.white,
-    shadowColor: '#0B1B3B',
+    shadowColor: Colors.ink900,
     shadowOpacity: 0.28,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 3 },

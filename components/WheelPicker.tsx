@@ -128,7 +128,7 @@ export default function WheelPicker({
 const styles = StyleSheet.create({
   container: { overflow: 'hidden' },
   item: { alignItems: 'center', justifyContent: 'center' },
-  itemText: { fontFamily: FontFamily.display, textAlign: 'center' },
+  itemText: { fontVariant: ['tabular-nums'], fontFamily: FontFamily.display, textAlign: 'center' },
   active: { fontSize: 30, color: Colors.ink900, fontFamily: FontFamily.displayBold },
   inactive: { fontSize: 24, color: Colors.ink400 },
 });

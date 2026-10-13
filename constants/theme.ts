@@ -1,6 +1,6 @@
 /**
  * Wakey design system — ported from the Claude Design UI kit.
- * Brand blue #0063F3, accent yellow #FFBC00, purple support, cool blue-tinted
+ * Brand blue #0063F3, accent yellow #FFBC00 (ring screen only), cool blue-tinted
  * neutrals. Display font Fredoka, body font Nunito. Chunky, rounded, glassy.
  */
 
@@ -17,20 +17,9 @@ export const Colors = {
   blue800: '#00337F',
 
   yellow100: '#FFEDB3',
-  yellow400: '#FFC933',
   yellow500: '#FFBC00', // accent
-  yellow700: '#B88700',
-
-  purple100: '#EDE7FF',
-  purple400: '#A78BEB',
-  purple500: '#8B6FE0',
-  purple600: '#7256C7',
 
   green500: '#2FC66B',
-  green600: '#23A657',
-  red500: '#FF5A5F',
-  red600: '#E3474C',
-  orange500: '#FF8A3D',
 
   // Cool neutrals
   ink900: '#0B1B3B', // headings
@@ -40,37 +29,23 @@ export const Colors = {
   ink200: '#CAD4E6', // hairline
   ink100: '#E6ECF5',
   paper: '#F4F8FF', // bg top
-  paper2: '#E8F1FF', // bg bottom
   white: '#FFFFFF',
 
   // Semantic aliases
   primary: '#0063F3',
-  primaryPress: '#0041A3',
   accent: '#FFBC00',
-  textHeading: '#0B1B3B',
   textBody: '#2A3A5C',
   textMuted: '#5A6B8C',
   textFaint: '#8A98B5',
   surfaceCard: '#FFFFFF',
   borderHairline: '#CAD4E6',
-  success: '#2FC66B',
   danger: '#FF5A5F',
-  warning: '#FF8A3D',
   onBrand: '#FFFFFF',
   onAccent: '#0B1B3B',
 
   // Glass (approximated for RN: translucent white, no native blur)
   glassBg: 'rgba(255,255,255,0.62)',
   glassBorder: 'rgba(255,255,255,0.7)',
-
-  // --- Back-compat aliases for screens not yet re-skinned (editor/ring/game) ---
-  background: '#F4F8FF',
-  surface: '#FFFFFF',
-  surfaceAlt: '#E8F1FF',
-  border: '#CAD4E6',
-  text: '#0B1B3B',
-  textSecondary: '#5A6B8C',
-  accentSoft: '#CFE0FF',
 } as const;
 
 /** Sky-wash app background gradient stops (top -> bottom). */
@@ -98,27 +73,18 @@ export const FontSize = {
   h1: 34,
   display: 56,
   clock: 72,
-  // Back-compat aliases
-  xl: 22,
-  xxl: 28,
   title: 40,
 } as const;
 
 export const FontFamily = {
   // Display — Fredoka
   display: 'Fredoka_600SemiBold',
-  displayMedium: 'Fredoka_500Medium',
   displayBold: 'Fredoka_700Bold',
   // Body — Nunito
   body: 'Nunito_400Regular',
   bodyMedium: 'Nunito_600SemiBold',
   bodyBold: 'Nunito_700Bold',
   bodyBlack: 'Nunito_800ExtraBold',
-  // Back-compat aliases (editor/ring/game)
-  regular: 'Nunito_400Regular',
-  medium: 'Nunito_600SemiBold',
-  semibold: 'Nunito_600SemiBold',
-  bold: 'Nunito_700Bold',
 } as const;
 
 export const BorderRadius = {

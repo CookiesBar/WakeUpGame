@@ -1,9 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import Pressable from '@/components/Pressable';
 import ScreenBackground from '@/components/ScreenBackground';
 import Toggle from '@/components/Toggle';
 import { BorderRadius, Colors, FontFamily, FontSize, Shadow, Spacing } from '@/constants/theme';
@@ -77,11 +78,11 @@ export default function RoutineEditorScreen() {
     <ScreenBackground>
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <View style={styles.header}>
-          <Pressable onPress={() => router.back()} hitSlop={8}>
+          <Pressable onPress={() => router.back()} hitSlop={8} accessibilityRole="button">
             <Text style={styles.cancel}>{t('common.cancel')}</Text>
           </Pressable>
           <Text style={styles.headerTitle}>{t('routines.fallback')}</Text>
-          <Pressable onPress={save} hitSlop={8}>
+          <Pressable onPress={save} hitSlop={8} accessibilityRole="button">
             <Text style={styles.save}>{t('common.save')}</Text>
           </Pressable>
         </View>
@@ -105,7 +106,7 @@ export default function RoutineEditorScreen() {
             {steps.map((a) => {
               const time = formatTime(a.time, h24);
               return (
-                <Pressable key={a.id} style={styles.step} onPress={() => router.push(`/alarm/${a.id}`)}>
+                <Pressable key={a.id} style={styles.step} onPress={() => router.push(`/alarm/${a.id}`)} accessibilityRole="button">
                   <Text style={styles.stepTime}>
                     {`${time.display} ${time.meridiem}`.trim()}
                   </Text>
@@ -174,7 +175,7 @@ export default function RoutineEditorScreen() {
             <Toggle checked={levelUp} onChange={setLevelUp} />
           </View>
 
-          <Pressable style={styles.deleteButton} onPress={confirmDelete}>
+          <Pressable style={styles.deleteButton} onPress={confirmDelete} accessibilityRole="button">
             <Ionicons name="trash-outline" size={20} color={Colors.danger} />
             <Text style={styles.deleteText}>{t('routineEditor.delete')}</Text>
           </Pressable>
@@ -230,7 +231,7 @@ const styles = StyleSheet.create({
   stepperButton: { width: 48, height: 44, alignItems: 'center', justifyContent: 'center' },
   stepperValue: { flex: 1, textAlign: 'center', fontFamily: FontFamily.bodyBold, fontSize: FontSize.md, color: Colors.ink900 },
   step: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, minHeight: 52 },
-  stepTime: { width: 84, fontFamily: FontFamily.displayBold, fontSize: FontSize.lg, color: Colors.ink900 },
+  stepTime: { width: 84, fontVariant: ['tabular-nums'], fontFamily: FontFamily.displayBold, fontSize: FontSize.lg, color: Colors.ink900 },
   stepLabel: { fontFamily: FontFamily.bodyBold, fontSize: FontSize.md, color: Colors.ink700 },
   stepMission: { fontFamily: FontFamily.bodyBold, fontSize: FontSize.xs, color: Colors.textMuted },
   add: {

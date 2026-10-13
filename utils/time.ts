@@ -1,31 +1,6 @@
 import { useCalendars } from 'expo-localization';
 import { useEffect, useState } from 'react';
 
-import type { Translate } from '@/i18n';
-import { nextFire, type Repeating } from './schedule.ts';
-
-export function nextDateFor(hour: number, minute: number): Date {
-  const now = new Date();
-  const next = new Date();
-  next.setHours(hour, minute, 0, 0);
-  if (next <= now) next.setDate(next.getDate() + 1);
-  return next;
-}
-
-/** Next time this alarm fires (skips/moves included); the plain next HH:MM if everything is skipped. */
-export function nextOccurrence(alarm: Repeating): Date {
-  const [hour, minute] = alarm.time.split(':').map(Number);
-  return nextFire(alarm, new Date()) ?? nextDateFor(hour, minute);
-}
-
-/** "Rings in 7 h 32 min" — `at` is the next fire time. */
-export function ringsIn(t: Translate, at: Date, now = Date.now()): string {
-  const mins = Math.floor((at.getTime() - now) / 60_000); // round down, like the iOS Clock app
-  if (mins < 1) return t('nextAlarm.soon');
-  if (mins < 60) return t('nextAlarm.minutes', { m: mins });
-  return t('nextAlarm.hoursMinutes', { h: Math.floor(mins / 60), m: mins % 60 });
-}
-
 /** Follows the phone's 12/24-hour setting (like the system Clock app), not the app language. */
 export function use24h(): boolean {
   return useCalendars()[0].uses24hourClock ?? false;

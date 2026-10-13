@@ -1,7 +1,8 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import Pressable from '@/components/Pressable';
 import Mascot from '@/components/Mascot';
 import ScreenBackground from '@/components/ScreenBackground';
 import { BorderRadius, Colors, FontFamily, FontSize, Shadow, Spacing } from '@/constants/theme';
@@ -119,7 +120,7 @@ const styles = StyleSheet.create({
     ...Shadow.md,
   },
   timeRow: { flexDirection: 'row', alignItems: 'baseline', gap: Spacing.sm },
-  time: { fontFamily: FontFamily.displayBold, fontSize: 34, color: Colors.ink900 },
+  time: { fontVariant: ['tabular-nums'], fontFamily: FontFamily.displayBold, fontSize: 34, color: Colors.ink900 },
   timeSkipped: { color: Colors.ink400, textDecorationLine: 'line-through' },
   meridiem: { fontSize: FontSize.md, color: Colors.blue500 },
   was: { fontFamily: FontFamily.display, fontSize: FontSize.md, color: Colors.ink400, textDecorationLine: 'line-through' },
