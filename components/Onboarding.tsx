@@ -1,261 +1,152 @@
-import { BUTTON_TEXT, ONBOARDING_PAGES } from '@/constants/onboardingContent';
-import { BorderRadius, Colors, FontFamily, FontSize, Spacing } from '@/constants/theme';
+// First-launch flow: story → try the game → one alarm setting per step → create the alarm.
 import { Ionicons } from '@expo/vector-icons';
-import React, { useCallback, useEffect, useState } from 'react';
-import {
-    Dimensions,
-    Image,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View
-} from 'react-native';
-import Animated, {
-    Easing,
-    useAnimatedStyle,
-    useSharedValue,
-    withSpring,
-    withTiming
-} from 'react-native-reanimated';
-import OnboardingAlarmDemo from './OnboardingAlarmDemo';
+import { useCallback, useEffect, useState } from 'react';
+import { BackHandler, KeyboardAvoidingView, Platform, StyleSheet, Text, View } from 'react-native';
+import Animated, { FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
+import Pressable from '@/components/Pressable';
+import { BorderRadius, Colors, FontFamily, FontSize, Spacing } from '@/constants/wakeyTheme';
+import { useLocale } from '@/contexts/LocaleContext';
+import { scheduleAlarmNotification } from '@/utils/notifications';
+import { DEFAULT_SOUND_ID } from '@/utils/sounds';
+import { type Alarm, generateId, saveAlarm } from '@/utils/storage';
+import { DEFAULT_MATH_LEVEL, DEFAULT_STEPS } from '@/utils/wakeCheck';
+import { ease } from './onboarding/kit';
+import { type Answers, type Draft, pageExit, STEPS, type StepId, VIEWS } from './onboarding/steps';
 
-// Only show first 5 pages in the swiper
-const REGULAR_PAGES = ONBOARDING_PAGES.slice(0, 5);
-const TOTAL_PAGES = 6;
+const pad = (n: number) => String(n).padStart(2, '0');
+const REVIEW = STEPS.indexOf('review');
 
-const ANIMATION_DURATION = 250;
+export default function Onboarding({ onComplete }: { onComplete: () => void }) {
+    const { t } = useLocale();
+    // Visited step indexes; Back pops, Skip / review rows push.
+    const [history, setHistory] = useState([0]);
+    const index = history[history.length - 1];
+    const id = STEPS[index];
 
-interface OnboardingProps {
-    onComplete: () => void;
-}
+    const [answers, setAnswersState] = useState<Answers>({ goal: null, pains: [] });
+    const [draft, setDraft] = useState<Draft>(() => ({
+        hours: 7,
+        minutes: 0,
+        days: [false, true, true, true, true, true, false],
+        steps: DEFAULT_STEPS,
+        mathLevel: DEFAULT_MATH_LEVEL,
+        soundId: DEFAULT_SOUND_ID,
+        wakeCheck: true,
+        label: t('onboarding.defaultLabel'),
+    }));
 
-// Animated indicator component
-const AnimatedIndicator = React.memo(({ index, currentIndex }: { index: number; currentIndex: number }) => {
-    const isActive = index === currentIndex;
-    const width = useSharedValue(isActive ? 24 : 10);
+    const goTo = useCallback((step: StepId) => setHistory(h => [...h, STEPS.indexOf(step)]), []);
+    // Once the review has been seen (Skip or the end), Continue on an edited setting returns to it.
+    const next = useCallback(
+        () => setHistory(h => [...h, h.includes(REVIEW) ? REVIEW : Math.min(h[h.length - 1] + 1, REVIEW)]),
+        [],
+    );
+    const back = useCallback(() => setHistory(h => (h.length > 1 ? h.slice(0, -1) : h)), []);
 
     useEffect(() => {
-        width.value = withSpring(isActive ? 24 : 10, {
-            damping: 15,
-            stiffness: 150,
+        const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+            if (history.length === 1) return false;
+            back();
+            return true;
         });
-    }, [isActive]);
+        return () => sub.remove();
+    }, [history.length, back]);
 
-    const animatedStyle = useAnimatedStyle(() => ({
-        width: width.value,
-        backgroundColor: isActive ? Colors.accent : Colors.border,
-    }));
+    // The alarm built here is saved for real, so the user lands on a working alarm.
+    const finish = useCallback(async () => {
+        const alarm: Alarm = {
+            id: generateId(),
+            time: `${pad(draft.hours)}:${pad(draft.minutes)}`,
+            label: draft.label.trim() || t('onboarding.defaultLabel'),
+            enabled: true,
+            days: draft.days,
+            soundUri: draft.soundId,
+            createdAt: Date.now(),
+            wakeCheck: draft.wakeCheck,
+            steps: draft.steps,
+            mathLevel: draft.mathLevel,
+        };
+        // Short beat so "Setting your alarm…" reads as a moment, not a flicker.
+        await Promise.all([
+            saveAlarm(alarm).then(() => scheduleAlarmNotification(alarm)),
+            new Promise(r => setTimeout(r, 900)),
+        ]);
+        onComplete();
+    }, [draft, onComplete, t]);
 
-    return <Animated.View style={[styles.indicator, animatedStyle]} />;
-});
+    const progress = useSharedValue(0);
+    useEffect(() => {
+        progress.value = withTiming(index / (STEPS.length - 1), { duration: 500, easing: ease });
+    }, [index, progress]);
+    const barStyle = useAnimatedStyle(() => ({ width: `${progress.value * 100}%` }));
 
-export default function Onboarding({ onComplete }: OnboardingProps) {
-    const [currentIndex, setCurrentIndex] = useState(0);
-    const [isAnimating, setIsAnimating] = useState(false);
-
-    // Animation values - simple fade + subtle slide
-    const opacity = useSharedValue(1);
-    const translateX = useSharedValue(0);
-    const scale = useSharedValue(1);
-
-    const animateToNext = useCallback((nextIndex: number, goToDemo: boolean = false) => {
-        if (goToDemo) {
-            // Instant transition to demo page - no animation to avoid stutter
-            setCurrentIndex(REGULAR_PAGES.length);
-            return;
-        }
-
-        setIsAnimating(true);
-
-        // Phase 1: Fade out + slide left slightly
-        opacity.value = withTiming(0, { duration: ANIMATION_DURATION, easing: Easing.out(Easing.quad) });
-        translateX.value = withTiming(-30, { duration: ANIMATION_DURATION, easing: Easing.out(Easing.quad) });
-        scale.value = withTiming(0.95, { duration: ANIMATION_DURATION, easing: Easing.out(Easing.quad) });
-
-        // After fade out, update content + fade in
-        setTimeout(() => {
-            setCurrentIndex(nextIndex);
-
-            // Reset to right side
-            translateX.value = 30;
-            scale.value = 0.95;
-
-            // Phase 2: Fade in from right
-            opacity.value = withTiming(1, { duration: ANIMATION_DURATION, easing: Easing.out(Easing.quad) });
-            translateX.value = withTiming(0, { duration: ANIMATION_DURATION, easing: Easing.out(Easing.quad) });
-            scale.value = withTiming(1, { duration: ANIMATION_DURATION, easing: Easing.out(Easing.quad) });
-
-            setTimeout(() => {
-                setIsAnimating(false);
-            }, ANIMATION_DURATION);
-        }, ANIMATION_DURATION);
-    }, []);
-
-    const handleNext = useCallback(() => {
-        if (isAnimating) return;
-
-        if (currentIndex < REGULAR_PAGES.length - 1) {
-            animateToNext(currentIndex + 1);
-        } else if (currentIndex === REGULAR_PAGES.length - 1) {
-            animateToNext(0, true);
-        } else {
-            onComplete();
-        }
-    }, [currentIndex, isAnimating, onComplete, animateToNext]);
-
-    const isOnDemoPage = currentIndex >= REGULAR_PAGES.length;
-    const currentPage = REGULAR_PAGES[currentIndex];
-
-    // Animated content style
-    const animatedContentStyle = useAnimatedStyle(() => ({
-        opacity: opacity.value,
-        transform: [
-            { translateX: translateX.value },
-            { scale: scale.value },
-        ],
-    }));
-
-    const renderPageIndicator = () => (
-        <View style={styles.indicatorContainer}>
-            {Array.from({ length: TOTAL_PAGES }).map((_, index) => (
-                <AnimatedIndicator key={index} index={index} currentIndex={currentIndex} />
-            ))}
-        </View>
-    );
-
-    // Show demo page when on last page (no page indicator)
-    if (isOnDemoPage) {
-        return (
-            <View style={styles.container}>
-                <Animated.View style={[styles.demoContainer, animatedContentStyle]}>
-                    <OnboardingAlarmDemo onNext={onComplete} />
-                </Animated.View>
-            </View>
-        );
-    }
+    const Step = VIEWS[id];
+    const isLast = id === 'review';
 
     return (
-        <View style={styles.container}>
-            {/* Content Area with Animation */}
-            <Animated.View style={[styles.contentArea, animatedContentStyle]}>
-                {/* Image/Thumbnail Area */}
-                <View style={styles.imageContainer}>
-                    {currentPage?.image ? (
-                        <Image source={currentPage.image} style={styles.image} resizeMode="contain" />
-                    ) : (
-                        <View style={styles.imagePlaceholder}>
-                            <Ionicons name="alarm" size={80} color={Colors.accent} />
-                        </View>
+        <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+            <View style={styles.header}>
+                <View style={styles.side}>
+                    {history.length > 1 && (
+                        <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(150)}>
+                            <Pressable onPress={back} style={styles.back} accessibilityRole="button" accessibilityLabel={t('common.back')} hitSlop={8}>
+                                <Ionicons name="chevron-back" size={22} color={Colors.ink900} />
+                            </Pressable>
+                        </Animated.View>
                     )}
                 </View>
-
-                {/* Text Content */}
-                <View style={styles.textContainer}>
-                    <Text style={styles.title}>{currentPage?.title || 'Welcome'}</Text>
-                    <Text style={styles.description}>{currentPage?.description || ''}</Text>
+                <View style={styles.track}>
+                    <Animated.View style={[styles.fill, barStyle]} />
                 </View>
-            </Animated.View>
-
-            {/* Page Indicator */}
-            {renderPageIndicator()}
-
-            {/* Next Button */}
-            <View style={styles.buttonContainer}>
-                <TouchableOpacity
-                    style={[styles.button, isAnimating && styles.buttonDisabled]}
-                    onPress={handleNext}
-                    activeOpacity={0.8}
-                    disabled={isAnimating}
-                >
-                    <Text style={styles.buttonText}>{BUTTON_TEXT.next}</Text>
-                </TouchableOpacity>
+                <View style={[styles.side, styles.right]}>
+                    {!isLast && (
+                        <Pressable onPress={() => goTo('review')} accessibilityRole="button" hitSlop={8}>
+                            <Text style={styles.skip}>{t('onboarding.skip')}</Text>
+                        </Pressable>
+                    )}
+                </View>
             </View>
-        </View>
+
+            <View style={styles.body}>
+                <Animated.View key={`${index}-${history.length}`} exiting={pageExit} style={StyleSheet.absoluteFill}>
+                    <Step
+                        draft={draft}
+                        set={patch => setDraft(d => ({ ...d, ...patch }))}
+                        answers={answers}
+                        setAnswers={patch => setAnswersState(a => ({ ...a, ...patch }))}
+                        next={next}
+                        goTo={goTo}
+                        finish={finish}
+                    />
+                </Animated.View>
+            </View>
+        </KeyboardAvoidingView>
     );
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: Colors.background,
-    },
-    contentArea: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-        paddingHorizontal: Spacing.lg,
-        paddingTop: Spacing.xl,
-    },
-    demoContainer: {
-        flex: 1,
-    },
-    imageContainer: {
-        justifyContent: 'center',
-        alignItems: 'center',
-        flex: 1,
-        maxHeight: SCREEN_WIDTH * 0.55,
-    },
-    image: {
-        width: SCREEN_WIDTH * 0.55,
-        height: SCREEN_WIDTH * 0.55,
-    },
-    imagePlaceholder: {
-        width: SCREEN_WIDTH * 0.4,
-        height: SCREEN_WIDTH * 0.4,
-        borderRadius: BorderRadius.xl,
-        backgroundColor: Colors.surfaceAlt,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    textContainer: {
-        alignItems: 'center',
-        paddingHorizontal: Spacing.md,
-        marginTop: Spacing.lg,
-    },
-    title: {
-        fontFamily: FontFamily.bold,
-        fontSize: 28, // Smaller to prevent overlap
-        color: Colors.accent,
-        textAlign: 'center',
-        marginBottom: Spacing.sm,
-    },
-    description: {
-        fontFamily: FontFamily.regular,
-        fontSize: FontSize.lg, // 18px
-        color: Colors.textSecondary,
-        textAlign: 'center',
-        lineHeight: 32,
-    },
-    indicatorContainer: {
+    root: { flex: 1, backgroundColor: Colors.paper },
+    header: {
         flexDirection: 'row',
-        justifyContent: 'center',
         alignItems: 'center',
-        paddingVertical: Spacing.lg,
-    },
-    indicator: {
-        height: 10,
-        borderRadius: 5,
-        marginHorizontal: 4,
-    },
-    buttonContainer: {
+        gap: Spacing.md,
         paddingHorizontal: Spacing.lg,
-        paddingBottom: Spacing.xxl,
+        paddingTop: Spacing.sm,
+        paddingBottom: Spacing.sm,
     },
-    button: {
-        backgroundColor: Colors.accent,
-        paddingVertical: Spacing.md,
-        borderRadius: BorderRadius.lg,
+    side: { width: 72, height: 40, justifyContent: 'center' },
+    right: { alignItems: 'flex-end' },
+    back: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: Colors.white,
         alignItems: 'center',
+        justifyContent: 'center',
     },
-    buttonDisabled: {
-        opacity: 0.7,
-    },
-    buttonText: {
-        fontFamily: FontFamily.semibold,
-        fontSize: FontSize.md,
-        color: Colors.background,
-        letterSpacing: 1,
-    },
+    track: { flex: 1, height: 6, borderRadius: BorderRadius.pill, backgroundColor: Colors.ink100, overflow: 'hidden' },
+    fill: { height: '100%', borderRadius: BorderRadius.pill, backgroundColor: Colors.primary },
+    skip: { fontFamily: FontFamily.bodyBold, fontSize: FontSize.md, color: Colors.ink500 },
+    body: { flex: 1 },
 });

@@ -1,5 +1,7 @@
+import { GlassButton } from '@/components/Glass';
 import { BorderRadius, Colors, FontFamily, FontSize, Spacing } from '@/constants/theme';
-import { BUNDLED_SOUNDS, DEFAULT_SOUND_ID, getSoundName, pickCustomSound, previewSound, stopAlarmSound } from '@/utils/sounds';
+import { useLocale } from '@/contexts/LocaleContext';
+import { BUNDLED_SOUNDS, DEFAULT_SOUND_ID, getSoundName, pickCustomSound, previewSound, setPickedSound, stopAlarmSound } from '@/utils/sounds';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useState } from 'react';
@@ -13,7 +15,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function SoundsScreen() {
-    const params = useLocalSearchParams<{ currentSoundId?: string; alarmId?: string }>();
+    const params = useLocalSearchParams<{ currentSoundId?: string }>();
+    const { t } = useLocale();
     const [selectedSoundId, setSelectedSoundId] = useState<string>(
         params.currentSoundId || DEFAULT_SOUND_ID
     );
@@ -49,15 +52,8 @@ export default function SoundsScreen() {
 
     const handleConfirm = () => {
         stopAlarmSound();
-        // Navigate back to alarm edit with the selected sound
-        router.replace({
-            pathname: '/alarm/[id]',
-            params: {
-                id: params.alarmId || 'new',
-                selectedSoundId: selectedSoundId,
-                selectedSoundName: getSoundName(selectedSoundId),
-            }
-        });
+        setPickedSound(selectedSoundId);
+        router.back();
     };
 
     const handleBack = () => {
@@ -69,19 +65,15 @@ export default function SoundsScreen() {
         <SafeAreaView style={styles.container} edges={['top']}>
             {/* Header */}
             <View style={styles.header}>
-                <Pressable onPress={handleBack} style={styles.headerButton}>
-                    <Ionicons name="chevron-back" size={24} color={Colors.text} />
-                </Pressable>
-                <Text style={styles.headerTitle}>Alarm Sound</Text>
-                <Pressable onPress={handleConfirm} style={styles.headerButton}>
-                    <Ionicons name="checkmark" size={24} color={Colors.accent} />
-                </Pressable>
+                <GlassButton icon="chevron-back" color={Colors.text} onPress={handleBack} accessibilityLabel={t('common.back')} />
+                <Text style={styles.headerTitle}>{t('sounds.title')}</Text>
+                <GlassButton icon="checkmark" color="#FFFFFF" tintColor={Colors.accent} onPress={handleConfirm} accessibilityLabel={t('common.save')} />
             </View>
 
             <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
                 {/* Custom Sound Section */}
                 <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>Custom</Text>
+                    <Text style={styles.sectionTitle}>{t('sounds.custom')}</Text>
                     <View style={styles.listContainer}>
                         <Pressable
                             style={styles.row}
@@ -90,7 +82,7 @@ export default function SoundsScreen() {
                             <View style={styles.rowContent}>
                                 <Ionicons name="folder-open-outline" size={22} color={Colors.textSecondary} />
                                 <Text style={styles.rowLabel}>
-                                    {customSoundUri ? 'Custom Sound' : 'Choose from Files'}
+                                    {customSoundUri ? t('sounds.customSound') : t('sounds.chooseFile')}
                                 </Text>
                             </View>
                             {isCustomSelected && (
@@ -102,7 +94,7 @@ export default function SoundsScreen() {
 
                 {/* App Sounds Section */}
                 <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>Sounds</Text>
+                    <Text style={styles.sectionTitle}>{t('sounds.list')}</Text>
                     <View style={styles.listContainer}>
                         {BUNDLED_SOUNDS.map((sound, index) => (
                             <React.Fragment key={sound.id}>
@@ -110,7 +102,7 @@ export default function SoundsScreen() {
                                     style={styles.row}
                                     onPress={() => handleSelectSound(sound.id)}
                                 >
-                                    <Text style={styles.rowLabel}>{sound.name}</Text>
+                                    <Text style={styles.rowLabel}>{getSoundName(sound.id)}</Text>
                                     {selectedSoundId === sound.id && (
                                         <Ionicons name="checkmark" size={22} color={Colors.accent} />
                                     )}
@@ -140,9 +132,6 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
         paddingHorizontal: Spacing.md,
         paddingVertical: Spacing.sm,
-    },
-    headerButton: {
-        padding: Spacing.sm,
     },
     headerTitle: {
         fontSize: FontSize.lg,

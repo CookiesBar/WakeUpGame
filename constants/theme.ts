@@ -1,5 +1,5 @@
 // Theme constants for Wake Up Game - Corporate UI Style
-// Light theme, no drop shadows, Google Inter font
+// Light theme, no drop shadows, Plus Jakarta Sans everywhere
 
 export const Colors = {
   // Primary colors
@@ -19,21 +19,10 @@ export const Colors = {
 
   // UI elements
   border: '#E2E8F0',       // Subtle borders
-  divider: '#F1F5F9',      // Dividers
 
   // Status colors
   success: '#10B981',      // Green for on/active
   danger: '#EF4444',       // Red for delete/danger
-  warning: '#F59E0B',      // Orange for warnings
-
-  // Game colors
-  gameBackground: '#0F172A', // Dark background for games
-  snake: '#10B981',         // Snake color
-  fruit: '#EF4444',         // Fruit color
-  bomb: '#1F2937',          // Bomb color
-  dino: '#374151',          // Dino color
-  ground: '#64748B',        // Ground color
-  cactus: '#059669',        // Cactus color
 };
 
 export const Spacing = {
@@ -57,10 +46,10 @@ export const FontSize = {
 };
 
 export const FontFamily = {
-  regular: 'Inter_400Regular',
-  medium: 'Inter_500Medium',
-  semibold: 'Inter_600SemiBold',
-  bold: 'Inter_700Bold',
+  regular: 'PlusJakartaSans_400Regular',
+  medium: 'PlusJakartaSans_500Medium',
+  semibold: 'PlusJakartaSans_600SemiBold',
+  bold: 'PlusJakartaSans_700Bold',
 };
 
 export const BorderRadius = {
@@ -71,20 +60,3 @@ export const BorderRadius = {
   full: 9999,
 };
 
-// No drop shadows - use borders instead
-export const Elevation = {
-  none: {},
-  subtle: {
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-};
-
-export default {
-  Colors,
-  Spacing,
-  FontSize,
-  FontFamily,
-  BorderRadius,
-  Elevation,
-};

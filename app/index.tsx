@@ -1,85 +1,31 @@
+import { GlassButton } from '@/components/Glass';
 import { BorderRadius, Colors, FontFamily, FontSize, Spacing } from '@/constants/theme';
 import { useAlarms } from '@/contexts/AlarmContext';
+import { useLocale } from '@/contexts/LocaleContext';
+import { strings } from '@/i18n';
 import { checkAndShowRating } from '@/utils/rating';
 import { Alarm } from '@/utils/storage';
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router, useFocusEffect } from 'expo-router';
-import React, { useCallback, useEffect } from 'react';
+import React, { useCallback } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   Pressable,
   StyleSheet,
+  Switch,
   Text,
   View
 } from 'react-native';
-import Animated, {
-  interpolateColor,
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-} from 'react-native-reanimated';
-import { SafeAreaView } from 'react-native-safe-area-context';
-
-// Set to true to show debug button
-const DEV_MODE = __DEV__;
-
-const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-// Animated Toggle Switch
-function AnimatedSwitch({ enabled, onToggle }: { enabled: boolean; onToggle: () => void }) {
-  const translateX = useSharedValue(enabled ? 20 : 0);
-  const progress = useSharedValue(enabled ? 1 : 0);
-
-  useEffect(() => {
-    translateX.value = withSpring(enabled ? 20 : 0, {
-      damping: 15,
-      stiffness: 200,
-    });
-    progress.value = withSpring(enabled ? 1 : 0, {
-      damping: 15,
-      stiffness: 200,
-    });
-  }, [enabled]);
-
-  const knobStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: translateX.value }],
-  }));
-
-  const trackStyle = useAnimatedStyle(() => ({
-    backgroundColor: interpolateColor(
-      progress.value,
-      [0, 1],
-      [Colors.surfaceAlt, Colors.accent]
-    ),
-  }));
-
-  return (
-    <Pressable onPress={onToggle}>
-      <Animated.View style={[styles.toggle, trackStyle]}>
-        <Animated.View style={[styles.toggleKnob, knobStyle]} />
-      </Animated.View>
-    </Pressable>
-  );
-}
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 function AlarmCard({ alarm, onToggle }: { alarm: Alarm; onToggle: () => void }) {
-  const [hours, minutes] = alarm.time.split(':');
-  const hour = parseInt(hours);
-  const isPM = hour >= 12;
-  const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+  const { t } = useLocale();
 
   const activeDays = alarm.days
-    .map((active, index) => (active ? DAY_LABELS[index] : null))
+    .map((active, index) => (active ? strings().days.short[index] : null))
     .filter(Boolean)
     .join(' ');
-
-  // Truncate days text to 12 characters
-  const truncatedDays = activeDays.length > 30
-    ? activeDays.substring(0, 30) + '...'
-    : activeDays;
 
   return (
     <Pressable
@@ -97,43 +43,45 @@ function AlarmCard({ alarm, onToggle }: { alarm: Alarm; onToggle: () => void }) 
         {/* Time */}
         <View style={styles.alarmTimeContainer}>
           <Text style={[styles.alarmTime, !alarm.enabled && styles.textDisabled]}>
-            {displayHour}:{minutes}
-          </Text>
-          <Text style={[styles.alarmPeriod, !alarm.enabled && styles.textDisabled]}>
-            {isPM ? 'PM' : 'AM'}
+            {alarm.time}
           </Text>
         </View>
 
         {/* Repeat days below time */}
         <View style={styles.alarmDays}>
           <Text style={[styles.daysText, !alarm.enabled && styles.textDisabled]}>
-            {truncatedDays || 'Once'}
+            {activeDays || t('alarms.once')}
           </Text>
         </View>
       </View>
 
-      <AnimatedSwitch
-        enabled={alarm.enabled}
-        onToggle={onToggle}
+      {/* Native switch: Liquid Glass on iOS 26, Material on Android. */}
+      <Switch
+        value={alarm.enabled}
+        onValueChange={onToggle}
+        trackColor={{ false: Colors.surfaceAlt, true: Colors.accent }}
+        ios_backgroundColor={Colors.surfaceAlt}
+        accessibilityLabel={alarm.label || alarm.time}
       />
     </Pressable>
   );
 }
 
 function EmptyState() {
+  const { t } = useLocale();
   return (
     <View style={styles.emptyState}>
       <Ionicons name="alarm-outline" size={64} color={Colors.textMuted} />
-      <Text style={styles.emptyTitle}>No Alarms</Text>
-      <Text style={styles.emptySubtitle}>
-        Tap the + button to create your first alarm
-      </Text>
+      <Text style={styles.emptyTitle}>{t('alarms.emptyTitle')}</Text>
+      <Text style={styles.emptySubtitle}>{t('alarms.emptySubtitle')}</Text>
     </View>
   );
 }
 
 export default function AlarmListScreen() {
   const { alarms, loading, toggleAlarmEnabled } = useAlarms();
+  const { t } = useLocale();
+  const insets = useSafeAreaInsets();
 
   // Check and show rating dialog when screen is focused
   useFocusEffect(
@@ -141,24 +89,6 @@ export default function AlarmListScreen() {
       checkAndShowRating();
     }, [])
   );
-
-  const handleResetOnboarding = async () => {
-    Alert.alert(
-      'Reset Onboarding',
-      'This will reset the onboarding status. The app will restart to show onboarding.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Reset',
-          style: 'destructive',
-          onPress: async () => {
-            await AsyncStorage.removeItem('hasSeenOnboarding');
-            Alert.alert('Done', 'Please restart the app to see onboarding.');
-          },
-        },
-      ]
-    );
-  };
 
   if (loading) {
     return (
@@ -171,25 +101,9 @@ export default function AlarmListScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.header}>
-        {DEV_MODE ? (
-          <Pressable onPress={handleResetOnboarding}>
-            <Ionicons name="refresh" size={24} color={Colors.textMuted} />
-          </Pressable>
-        ) : (
-          <View style={{ width: 24 }} />
-        )}
-        <Text style={styles.title}>Alarm</Text>
-        <Pressable
-          style={styles.addButton}
-          onPress={() => router.push('/alarm/new')}
-        >
-          <Ionicons name="add" size={28} color={Colors.primary} />
-        </Pressable>
-      </View>
-
+    <View style={styles.container}>
       <FlatList
+        ListHeaderComponent={<Text style={styles.title}>{t('alarms.title')}</Text>}
         data={alarms}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
@@ -200,12 +114,31 @@ export default function AlarmListScreen() {
         )}
         contentContainerStyle={[
           styles.list,
+          { paddingTop: insets.top },
           alarms.length === 0 && styles.listEmpty,
         ]}
         ListEmptyComponent={EmptyState}
         showsVerticalScrollIndicator={false}
       />
-    </SafeAreaView>
+
+      {/* Floating glass controls; the list scrolls underneath them. */}
+      <View style={[styles.header, { top: insets.top }]} pointerEvents="box-none">
+        <GlassButton
+          icon="settings-outline"
+          color={Colors.primary}
+          onPress={() => router.push('/settings')}
+          accessibilityLabel={t('settings.title')}
+        />
+        <GlassButton
+          icon="add"
+          size={28}
+          color="#FFFFFF"
+          tintColor={Colors.accent}
+          onPress={() => router.push('/alarm/new')}
+          accessibilityLabel={t('edit.addTitle')}
+        />
+      </View>
+    </View>
   );
 }
 
@@ -220,6 +153,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   header: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -227,17 +163,13 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.md,
   },
   title: {
+    marginTop: 44 + Spacing.md, // clears the floating buttons
+    marginBottom: Spacing.md,
+    marginHorizontal: Spacing.xs,
+    letterSpacing: -0.5,
     fontSize: FontSize.xxl,
     fontFamily: FontFamily.bold,
     color: Colors.text,
-  },
-  addButton: {
-    width: 44,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.surfaceAlt,
-    borderRadius: BorderRadius.full,
   },
   list: {
     padding: Spacing.md,
@@ -270,12 +202,6 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.bold,
     color: Colors.text,
   },
-  alarmPeriod: {
-    fontSize: FontSize.lg,
-    fontFamily: FontFamily.medium,
-    color: Colors.textSecondary,
-    marginLeft: Spacing.xs,
-  },
   alarmLabel: {
     fontSize: FontSize.sm,
     fontFamily: FontFamily.medium,
@@ -294,20 +220,6 @@ const styles = StyleSheet.create({
   },
   textDisabled: {
     color: Colors.textMuted,
-  },
-  toggle: {
-    width: 50,
-    height: 30,
-    backgroundColor: Colors.surfaceAlt,
-    borderRadius: BorderRadius.full,
-    padding: 3,
-    justifyContent: 'center',
-  },
-  toggleKnob: {
-    width: 24,
-    height: 24,
-    backgroundColor: Colors.background,
-    borderRadius: BorderRadius.full,
   },
   emptyState: {
     flex: 1,

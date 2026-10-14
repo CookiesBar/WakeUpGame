@@ -1,10 +1,10 @@
 // Alarm Context for state management
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, ReactNode, useCallback, useContext, useEffect, useState } from 'react';
 import { AppState } from 'react-native';
-import { clearPendingDemoAlarm, getPendingDemoAlarm } from '../components/OnboardingAlarmDemo';
 import {
-    cancelAlarmNotification,
+    cancelAlarmNotifications,
+    cancelWakeCheck,
+    processWakeChecks,
     requestNotificationPermissions,
     rescheduleRepeatingAlarms,
     scheduleAlarmNotification,
@@ -46,34 +46,6 @@ export const AlarmProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             await refreshAlarms();
             await refreshCustomSounds();
 
-            // Check if there's a pending demo alarm to create
-            const shouldCreatePendingAlarm = await AsyncStorage.getItem('@create_pending_alarm');
-            if (shouldCreatePendingAlarm === 'true') {
-                const pendingAlarm = await getPendingDemoAlarm();
-                if (pendingAlarm) {
-                    console.log('Creating alarm from demo settings:', pendingAlarm);
-                    // Convert hours and minutes to HH:MM format
-                    const time = `${String(pendingAlarm.hours).padStart(2, '0')}:${String(pendingAlarm.minutes).padStart(2, '0')}`;
-
-                    const newAlarm: Alarm = {
-                        id: generateId(),
-                        time,
-                        label: pendingAlarm.label,
-                        enabled: true,
-                        days: pendingAlarm.days,
-                        soundUri: null,
-                        createdAt: Date.now(),
-                    };
-
-                    await saveAlarm(newAlarm);
-                    await scheduleAlarmNotification(newAlarm);
-                    await clearPendingDemoAlarm();
-                    await AsyncStorage.removeItem('@create_pending_alarm');
-                    await refreshAlarms();
-                    console.log('Demo alarm created successfully:', newAlarm);
-                }
-            }
-
             setLoading(false);
         };
         init();
@@ -87,6 +59,8 @@ export const AlarmProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             getAlarms()
                 .then(alarms => rescheduleRepeatingAlarms(alarms, { skipRinging: true }))
                 .catch(error => console.error('Error re-arming repeating alarms:', error));
+            // Opening the app settles any "Still awake?" check (awake or missed).
+            processWakeChecks().then(leveled => { if (leveled) refreshAlarms(); });
         };
         rearm();
         const subscription = AppState.addEventListener('change', state => {
@@ -126,13 +100,14 @@ export const AlarmProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         if (alarm.enabled) {
             await scheduleAlarmNotification(alarm);
         } else {
-            await cancelAlarmNotification(alarm.id);
+            await cancelAlarmNotifications(alarm.id);
         }
         await refreshAlarms();
     }, [refreshAlarms]);
 
     const removeAlarm = useCallback(async (id: string): Promise<void> => {
-        await cancelAlarmNotification(id);
+        await cancelAlarmNotifications(id);
+        await cancelWakeCheck(id);
         await deleteAlarmStorage(id);
         await refreshAlarms();
     }, [refreshAlarms]);
@@ -143,7 +118,7 @@ export const AlarmProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             if (alarm.enabled) {
                 await scheduleAlarmNotification(alarm);
             } else {
-                await cancelAlarmNotification(alarm.id);
+                await cancelAlarmNotifications(alarm.id);
             }
         }
         await refreshAlarms();

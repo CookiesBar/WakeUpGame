@@ -67,28 +67,3 @@ export async function checkAndShowRating(): Promise<void> {
     }
 }
 
-/**
- * Get current alarm completion count (for debugging)
- */
-export async function getAlarmCompletionCount(): Promise<number> {
-    try {
-        const countStr = await AsyncStorage.getItem(ALARM_COMPLETION_COUNT_KEY);
-        return countStr ? parseInt(countStr, 10) : 0;
-    } catch (error) {
-        console.error('Error getting alarm completion count:', error);
-        return 0;
-    }
-}
-
-/**
- * Reset alarm completion count (for debugging)
- */
-export async function resetAlarmCompletionCount(): Promise<void> {
-    try {
-        await AsyncStorage.removeItem(ALARM_COMPLETION_COUNT_KEY);
-        await AsyncStorage.removeItem(SHOULD_SHOW_RATING_KEY);
-        console.log('Alarm completion count reset');
-    } catch (error) {
-        console.error('Error resetting alarm completion count:', error);
-    }
-}

@@ -1,8 +1,10 @@
 // Notification utilities for alarm scheduling
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
+import { strings, t } from '../i18n';
 import { BUNDLED_SOUNDS, DEFAULT_SOUND_ID } from './sounds';
-import { Alarm } from './storage';
+import { Alarm, getAlarms, getWakeChecks, saveAlarm, saveWakeChecks } from './storage';
+import { harder, WAKE_CHECK_DELAY_MS, wakeCheckOutcome } from './wakeCheck';
 
 // A local notification can't wake the app while the screen is off, so the only
 // sound the user hears is the notification's own (≤30 s on iOS). Schedule a
@@ -85,15 +87,6 @@ export const requestNotificationPermissions = async (): Promise<boolean> => {
     }
 };
 
-// Notification messages for backup notifications (cycles once exhausted)
-const NOTIFICATION_MESSAGES = [
-    { title: '⏰ Wake Up!', body: 'Time to wake up!' },
-    { title: '⏰ Alarm Still Ringing!', body: 'Tap to dismiss your alarm' },
-    { title: '⏰ Don\'t Miss Your Alarm!', body: 'Wake up! Tap to stop the alarm' },
-    { title: '⏰ Your Alarm Needs Attention!', body: 'Complete challenges to dismiss' },
-    { title: '⏰ Final Reminder!', body: 'Your alarm is still active' },
-];
-
 // Schedule alarm notification with backup notifications
 export const scheduleAlarmNotification = async (alarm: Alarm): Promise<string | null> => {
     try {
@@ -142,9 +135,7 @@ export const scheduleAlarmNotification = async (alarm: Alarm): Promise<string | 
         const channelId = androidChannelId(sound.id);
 
         // Format time for display in alarm ring screen
-        const displayHours = hours % 12 || 12;
-        const ampm = hours >= 12 ? 'PM' : 'AM';
-        const displayTime = `${displayHours}:${minutes.toString().padStart(2, '0')} ${ampm}`;
+        const displayTime = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
 
         // Thread ID for grouping notifications (iOS)
         const threadId = `alarm-${alarm.id}`;
@@ -154,7 +145,9 @@ export const scheduleAlarmNotification = async (alarm: Alarm): Promise<string | 
 
         for (let i = 0; i < BACKUP_NOTIFICATION_COUNT; i++) {
             const notificationTime = new Date(trigger.getTime() + (i * BACKUP_NOTIFICATION_INTERVAL_MS));
-            const message = NOTIFICATION_MESSAGES[i % NOTIFICATION_MESSAGES.length];
+            // Text is fixed at scheduling time; Settings re-schedules on a language change.
+            const messages = strings().notifications;
+            const message = messages[i % messages.length];
             const displayBody = alarm.label || message.body;
 
             const notificationId = await Notifications.scheduleNotificationAsync({
@@ -258,24 +251,105 @@ export const cancelAlarmNotifications = async (alarmId: string): Promise<void> =
     }
 };
 
-// Legacy function name for backward compatibility
-export const cancelAlarmNotification = cancelAlarmNotifications;
+// ---------- "Still awake?" check ----------
+// Check notifications carry `checkAlarmId` (not `alarmId`) so the ring screen,
+// dedupe and alarm cancel/re-arm paths all leave them alone.
 
-// Cancel all notifications
-export const cancelAllNotifications = async (): Promise<void> => {
-    try {
-        await Notifications.cancelAllScheduledNotificationsAsync();
-    } catch (error) {
-        console.error('Error canceling all notifications:', error);
+// Serialize check bookkeeping: a notification tap and the app turning active
+// arrive together and would otherwise both count the same missed check.
+let wakeCheckQueue: Promise<unknown> = Promise.resolve();
+const serial = <T,>(fn: () => Promise<T>): Promise<T> => {
+    const run = wakeCheckQueue.then(fn, fn);
+    wakeCheckQueue = run.catch(() => undefined);
+    return run;
+};
+
+const cancelWakeCheckNotifications = async (alarmId: string): Promise<void> => {
+    const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+    for (const n of scheduled) {
+        if (n.content.data?.checkAlarmId === alarmId) await Notifications.cancelScheduledNotificationAsync(n.identifier);
+    }
+    const presented = await Notifications.getPresentedNotificationsAsync();
+    for (const n of presented) {
+        if (n.request.content.data?.checkAlarmId === alarmId) await Notifications.dismissNotificationAsync(n.request.identifier);
     }
 };
 
-// Get all scheduled notifications
-export const getScheduledNotifications = async () => {
+/** Arm the check after the wake-up game; it rings like the alarm (same burst). */
+export const armWakeCheck = (alarm: Alarm, delayMs = WAKE_CHECK_DELAY_MS): Promise<void> => serial(async () => {
     try {
-        return await Notifications.getAllScheduledNotificationsAsync();
+        await cancelWakeCheckNotifications(alarm.id);
+        await ensureAndroidAlarmChannels();
+        const sound = getBundledSound(alarm.soundUri);
+        const firesAt = Date.now() + delayMs;
+        for (let i = 0; i < BACKUP_NOTIFICATION_COUNT; i++) {
+            await Notifications.scheduleNotificationAsync({
+                content: {
+                    title: t('wakeCheck.title'),
+                    body: t('wakeCheck.body'),
+                    data: { checkAlarmId: alarm.id },
+                    sound: sound.notificationSound,
+                    priority: Notifications.AndroidNotificationPriority.MAX,
+                    interruptionLevel: 'timeSensitive',
+                    ...(i > 0 && { threadId: `check-${alarm.id}` }),
+                } as Notifications.NotificationContentInput,
+                trigger: {
+                    type: Notifications.SchedulableTriggerInputTypes.DATE,
+                    date: new Date(firesAt + i * BACKUP_NOTIFICATION_INTERVAL_MS),
+                    channelId: androidChannelId(sound.id),
+                },
+            });
+        }
+        const checks = await getWakeChecks();
+        checks[alarm.id] = firesAt;
+        await saveWakeChecks(checks);
     } catch (error) {
-        console.error('Error getting scheduled notifications:', error);
-        return [];
+        console.error('Error arming wake check:', error);
     }
-};
+});
+
+export const cancelWakeCheck = (alarmId: string): Promise<void> => serial(async () => {
+    try {
+        await cancelWakeCheckNotifications(alarmId);
+        const checks = await getWakeChecks();
+        delete checks[alarmId];
+        await saveWakeChecks(checks);
+    } catch (error) {
+        console.error('Error cancelling wake check:', error);
+    }
+});
+
+/**
+ * Settle checks whose ring has started: the app being open during the ring
+ * means the user is awake; a ring that ran out means they fell back asleep,
+ * so that alarm's game levels up. Call on launch, on foreground and whenever a
+ * check notification arrives. Returns true if any alarm levelled up.
+ */
+export const processWakeChecks = (): Promise<boolean> => serial(async () => {
+    let leveled = false;
+    try {
+        const checks = await getWakeChecks();
+        const now = Date.now();
+        let changed = false;
+        for (const [alarmId, firesAt] of Object.entries(checks)) {
+            const outcome = wakeCheckOutcome(firesAt, now, BACKUP_WINDOW_MS);
+            if (outcome === 'pending') continue;
+            delete checks[alarmId];
+            changed = true;
+            await cancelWakeCheckNotifications(alarmId);
+            if (outcome === 'missed') {
+                const alarm = (await getAlarms()).find(a => a.id === alarmId);
+                const bumped = alarm && harder(alarm);
+                if (bumped) {
+                    await saveAlarm(bumped);
+                    leveled = true;
+                }
+            }
+        }
+        if (changed) await saveWakeChecks(checks);
+    } catch (error) {
+        console.error('Error processing wake checks:', error);
+    }
+    return leveled;
+});
+

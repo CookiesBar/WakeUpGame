@@ -1,13 +1,20 @@
+import { GlassButton } from '@/components/Glass';
 import WheelPicker from '@/components/WheelPicker';
 import { BorderRadius, Colors, FontFamily, FontSize, Spacing } from '@/constants/theme';
 import { useAlarms } from '@/contexts/AlarmContext';
-import { DEFAULT_SOUND_ID, getSoundName, stopAlarmSound } from '@/utils/sounds';
-import { getAlarms } from '@/utils/storage';
+import { useLocale } from '@/contexts/LocaleContext';
+import { strings, t } from '@/i18n';
+import { MathLevel } from '@/utils/math';
+import { DEFAULT_SOUND_ID, getSoundName, stopAlarmSound, takePickedSound } from '@/utils/sounds';
+import { DEFAULT_MATH_LEVEL, DEFAULT_STEPS, MATH_LEVELS, STEP_OPTIONS } from '@/utils/wakeCheck';
+import { bedtimes } from '@/utils/sleepCycle';
+import { Alarm, getAlarms } from '@/utils/storage';
 import { Ionicons } from '@expo/vector-icons';
-import { router, useLocalSearchParams } from 'expo-router';
-import React, { useEffect, useMemo, useState } from 'react';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     Alert,
+    Switch,
     Pressable,
     ScrollView,
     StyleSheet,
@@ -18,11 +25,8 @@ import {
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const DAY_SHORT = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
-
-// Calculate next alarm time for header subtitle
-const calculateNextAlarm = (hours: number, minutes: number, days: boolean[]): string => {
+// When the alarm next rings
+const nextAlarmDate = (hours: number, minutes: number, days: boolean[]): Date => {
     const now = new Date();
     const alarmTime = new Date();
     alarmTime.setHours(hours, minutes, 0, 0);
@@ -69,50 +73,53 @@ const calculateNextAlarm = (hours: number, minutes: number, days: boolean[]): st
         }
     }
 
-    const diffMs = alarmTime.getTime() - now.getTime();
+    return alarmTime;
+};
+
+// Header subtitle: "Alarm in 7 h 20 min"
+const calculateNextAlarm = (alarmTime: Date): string => {
+    const diffMs = alarmTime.getTime() - Date.now();
     const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
     const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
 
     if (diffHours === 0) {
-        return `Alarm in ${diffMinutes} minute${diffMinutes !== 1 ? 's' : ''}`;
+        return t('edit.inMinutes', { m: diffMinutes });
     } else if (diffHours < 24) {
-        return `Alarm in ${diffHours} hour${diffHours !== 1 ? 's' : ''} ${diffMinutes} minute${diffMinutes !== 1 ? 's' : ''}`;
+        return t('edit.inHours', { h: diffHours, m: diffMinutes });
     } else {
-        const diffDays = Math.floor(diffHours / 24);
-        const remainingHours = diffHours % 24;
-        return `Alarm in ${diffDays} day${diffDays !== 1 ? 's' : ''} ${remainingHours} hour${remainingHours !== 1 ? 's' : ''}`;
+        return t('edit.inDays', { d: Math.floor(diffHours / 24), h: diffHours % 24 });
     }
 };
 
+const formatHM = (d: Date) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+
 export default function AlarmEditScreen() {
-    const { id, selectedSoundId: routeSoundId, selectedSoundName: routeSoundName } = useLocalSearchParams<{
-        id: string;
-        selectedSoundId?: string;
-        selectedSoundName?: string;
-    }>();
+    const { id } = useLocalSearchParams<{ id: string }>();
     const isNew = id === 'new';
     const { addAlarm, updateAlarm, removeAlarm } = useAlarms();
+    useLocale(); // re-render on language change
 
     // Form state
     const [hours, setHours] = useState(7);
     const [minutes, setMinutes] = useState(0);
     const [label, setLabel] = useState('');
-    const [days, setDays] = useState<boolean[]>([false, false, false, false, false, false, false]);
+    const [days, setDays] = useState<boolean[]>(Array(7).fill(true)); // new alarms: every day
+    const [wakeCheck, setWakeCheck] = useState(true);
+    const [steps, setSteps] = useState<number>(DEFAULT_STEPS);
+    const [mathLevel, setMathLevel] = useState<MathLevel>(DEFAULT_MATH_LEVEL);
+    const [original, setOriginal] = useState<Alarm | null>(null);
 
     const [soundId, setSoundId] = useState<string>(DEFAULT_SOUND_ID);
-    const [soundName, setSoundName] = useState(getSoundName(DEFAULT_SOUND_ID));
     const [loading, setLoading] = useState(!isNew);
 
-    // State for repeat day picker modal
-    const [showRepeatPicker, setShowRepeatPicker] = useState(false);
+    // Repeat day picker starts open; the row header collapses it
+    const [showRepeatPicker, setShowRepeatPicker] = useState(true);
 
-    // Handle sound selection from sounds screen
-    useEffect(() => {
-        if (routeSoundId) {
-            setSoundId(routeSoundId);
-            setSoundName(routeSoundName || getSoundName(routeSoundId));
-        }
-    }, [routeSoundId, routeSoundName]);
+    // Pick up the sound chosen on the sounds screen when we're back in focus
+    useFocusEffect(useCallback(() => {
+        const picked = takePickedSound();
+        if (picked) setSoundId(picked);
+    }, []));
 
     // Load existing alarm if editing
     useEffect(() => {
@@ -130,12 +137,13 @@ export default function AlarmEditScreen() {
             setMinutes(m);
             setLabel(alarm.label);
             setDays(alarm.days);
+            setWakeCheck(alarm.wakeCheck !== false);
+            setSteps(alarm.steps ?? DEFAULT_STEPS);
+            setMathLevel(alarm.mathLevel ?? DEFAULT_MATH_LEVEL);
+            setOriginal(alarm);
 
-            // Load sound - but only if we're NOT coming back from sound selection screen
-            // If routeSoundId is present, it means user just selected a sound, so don't overwrite
-            if (alarm.soundUri && !routeSoundId) {
+            if (alarm.soundUri) {
                 setSoundId(alarm.soundUri);
-                setSoundName(getSoundName(alarm.soundUri));
             }
         }
         setLoading(false);
@@ -149,71 +157,43 @@ export default function AlarmEditScreen() {
 
     // Get display text for selected days
     const getRepeatDisplayText = (): string => {
-        const selectedDays = days.map((selected, index) => selected ? DAY_LABELS[index] : null).filter(Boolean);
+        const selectedDays = days.map((selected, index) => selected ? strings().days.short[index] : null).filter(Boolean);
 
         if (selectedDays.length === 0) {
-            return 'Never';
+            return t('edit.never');
         }
 
         if (selectedDays.length === 7) {
-            return 'Every day';
+            return t('edit.everyDay');
         }
 
         // Check for weekdays (Mon-Fri)
         if (days[1] && days[2] && days[3] && days[4] && days[5] && !days[0] && !days[6]) {
-            return 'Weekdays';
+            return t('edit.weekdays');
         }
 
         // Check for weekends
         if (days[0] && days[6] && !days[1] && !days[2] && !days[3] && !days[4] && !days[5]) {
-            return 'Weekends';
+            return t('edit.weekends');
         }
 
         return selectedDays.join(', ');
     };
 
-    // Generate wheel picker data
+    // Generate wheel picker data (24-hour clock: index = hour)
     const hoursData = useMemo(() =>
-        Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0')),
+        Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0')),
         []);
 
     const minutesData = useMemo(() =>
         Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0')),
         []);
 
-    const periodData = useMemo(() => ['AM', 'PM'], []);
-
-    // Convert 24h hours to 12h format for wheel picker
-    const getDisplayHour = () => {
-        const h = hours % 12;
-        return h === 0 ? 11 : h - 1; // Index for hoursData (01-12)
-    };
-
-    const getPeriodIndex = () => hours >= 12 ? 1 : 0;
-
-    const handleHourChange = (index: number) => {
-        const newHour = index + 1; // 1-12
-        const isPM = hours >= 12;
-        let h24 = isPM ? (newHour === 12 ? 12 : newHour + 12) : (newHour === 12 ? 0 : newHour);
-        setHours(h24);
-    };
-
-    const handleMinuteChange = (index: number) => {
-        setMinutes(index);
-    };
-
-    const handlePeriodChange = (index: number) => {
-        const isPM = index === 1;
-        const currentIsPM = hours >= 12;
-        if (isPM !== currentIsPM) {
-            setHours(prev => isPM ? prev + 12 : prev - 12);
-        }
-    };
 
     const handleSelectSound = () => {
         router.push({
             pathname: '/alarm/sounds',
-            params: { currentSoundId: soundId, alarmId: id }
+            params: { currentSoundId: soundId }
         });
     };
 
@@ -226,32 +206,36 @@ export default function AlarmEditScreen() {
             enabled: true,
             days,
             soundUri: soundId, // Store soundId in soundUri field for compatibility
+            wakeCheck,
+            steps,
+            mathLevel,
         };
 
         try {
             if (isNew) {
                 await addAlarm(alarmData);
             } else {
+                // Spread the original so fields the editor doesn't show (createdAt) survive
                 await updateAlarm({
+                    ...original!,
                     ...alarmData,
                     id: id!,
-                    createdAt: Date.now(),
                 });
             }
             router.back();
         } catch (error) {
-            Alert.alert('Error', 'Failed to save alarm');
+            Alert.alert(t('common.error'), t('edit.saveFailed'));
         }
     };
 
     const handleDelete = () => {
         Alert.alert(
-            'Delete Alarm',
-            'Are you sure you want to delete this alarm?',
+            t('edit.delete'),
+            t('edit.deleteConfirm'),
             [
-                { text: 'Cancel', style: 'cancel' },
+                { text: t('common.cancel'), style: 'cancel' },
                 {
-                    text: 'Delete',
+                    text: t('common.delete'),
                     style: 'destructive',
                     onPress: async () => {
                         await removeAlarm(id!);
@@ -272,74 +256,96 @@ export default function AlarmEditScreen() {
         return (
             <SafeAreaView style={styles.container}>
                 <View style={styles.loadingContainer}>
-                    <Text>Loading...</Text>
+                    <Text>{t('edit.loading')}</Text>
                 </View>
             </SafeAreaView>
         );
     }
 
-    const nextAlarmText = calculateNextAlarm(hours, minutes, days);
+    const nextAlarmAt = nextAlarmDate(hours, minutes, days);
+    const nextAlarmText = calculateNextAlarm(nextAlarmAt);
+    const beds = bedtimes(nextAlarmAt, new Date());
+    const suggested = beds.find(b => !b.passed);
 
     return (
         <SafeAreaView style={styles.container} edges={['top']}>
             {/* Header */}
             <View style={styles.header}>
-                <Pressable onPress={() => router.back()} style={styles.headerButton}>
-                    <Ionicons name="close" size={24} color={Colors.text} />
-                </Pressable>
+                <GlassButton icon="close" color={Colors.text} onPress={() => router.back()} accessibilityLabel={t('common.cancel')} />
                 <View style={styles.headerCenter}>
-                    <Text style={styles.headerTitle}>{isNew ? 'Add alarm' : 'Edit alarm'}</Text>
+                    <Text style={styles.headerTitle}>{isNew ? t('edit.addTitle') : t('edit.editTitle')}</Text>
                     <Text style={styles.headerSubtitle}>{nextAlarmText}</Text>
                 </View>
-                <Pressable onPress={handleSave} style={styles.headerButton}>
-                    <Ionicons name="checkmark" size={24} color={Colors.text} />
-                </Pressable>
+                <GlassButton icon="checkmark" color="#FFFFFF" tintColor={Colors.accent} onPress={handleSave} accessibilityLabel={t('common.save')} />
             </View>
 
             <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
                 {/* Time Picker */}
                 <GestureHandlerRootView style={styles.timePicker}>
-                    {/* AM/PM Picker */}
-                    <WheelPicker
-                        data={periodData}
-                        selectedIndex={getPeriodIndex()}
-                        onIndexChange={handlePeriodChange}
-                        style={styles.periodPicker}
-                        infinite={false}
-                    />
-
-                    {/* Hours Picker */}
                     <WheelPicker
                         data={hoursData}
-                        selectedIndex={getDisplayHour()}
-                        onIndexChange={handleHourChange}
+                        selectedIndex={hours}
+                        onIndexChange={setHours}
                         style={styles.hourPicker}
                         infinite={true}
                     />
 
-                    {/* Minutes Picker */}
+                    <Text style={styles.timeColon}>:</Text>
                     <WheelPicker
                         data={minutesData}
                         selectedIndex={minutes}
-                        onIndexChange={handleMinuteChange}
+                        onIndexChange={setMinutes}
                         style={styles.minutePicker}
                         infinite={true}
                     />
                 </GestureHandlerRootView>
 
-                {/* Settings List */}
+                {/* Sleep cycle bedtime hints (display only) */}
+                <View style={styles.bedtimes}>
+                    <Text style={styles.bedtimesLabel}>{t('edit.bedBy')}</Text>
+                    <View style={styles.bedtimeRow}>
+                        {beds.map(b => (
+                            <View
+                                key={b.cycles}
+                                style={[styles.bedtime, b.passed && styles.bedtimePassed]}
+                                accessible
+                                accessibilityLabel={t('edit.bedtimeA11y', { time: formatHM(b.at), h: b.cycles * 1.5 })}
+                            >
+                                <Text style={[styles.bedtimeTime, b === suggested && styles.bedtimeSuggested]}>{formatHM(b.at)}</Text>
+                                <Text style={styles.bedtimeHours}>{t('edit.sleepHours', { h: b.cycles * 1.5 })}</Text>
+                            </View>
+                        ))}
+                    </View>
+                </View>
+
+                {/* Alarm name + Repeat */}
                 <View style={styles.settingsList}>
-                    {/* 1. Repeat - shows selected days */}
+                    {/* Alarm name */}
+                    <View style={styles.settingsRow}>
+                        <Text style={styles.settingsLabel}>{t('edit.label')}</Text>
+                        <TextInput
+                            style={styles.settingsInput}
+                            placeholder={t('edit.labelPlaceholder')}
+                            placeholderTextColor={Colors.textMuted}
+                            value={label}
+                            onChangeText={setLabel}
+                            maxLength={16}
+                        />
+                    </View>
+
+                    <View style={styles.settingsDivider} />
+
+                    {/* Repeat - day picker open by default */}
                     <Pressable
                         style={styles.settingsRow}
                         onPress={() => setShowRepeatPicker(!showRepeatPicker)}
                     >
-                        <Text style={styles.settingsLabel}>Repeat</Text>
+                        <Text style={styles.settingsLabel}>{t('edit.repeat')}</Text>
                         <View style={styles.settingsValueContainer}>
                             <Text style={styles.settingsValue} numberOfLines={1} ellipsizeMode="tail">
                                 {getRepeatDisplayText()}
                             </Text>
-                            <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
+                            <Ionicons name={showRepeatPicker ? 'chevron-up' : 'chevron-down'} size={20} color={Colors.textMuted} />
                         </View>
                     </Pressable>
 
@@ -347,57 +353,99 @@ export default function AlarmEditScreen() {
                     {showRepeatPicker && (
                         <View style={styles.repeatPickerContainer}>
                             <View style={styles.daysRow}>
-                                {DAY_LABELS.map((day, index) => (
+                                {strings().days.short.map((day, index) => (
                                     <Pressable
                                         key={day}
                                         style={[styles.dayButton, days[index] && styles.dayButtonActive]}
                                         onPress={() => toggleDay(index)}
                                     >
                                         <Text style={[styles.dayText, days[index] && styles.dayTextActive]}>
-                                            {DAY_SHORT[index]}
+                                            {strings().days.letter[index]}
                                         </Text>
                                     </Pressable>
                                 ))}
                             </View>
                         </View>
                     )}
+                </View>
 
-                    {/* Divider */}
-                    <View style={styles.settingsDivider} />
-
-                    {/* 2. Label - input field */}
-                    <View style={styles.settingsRow}>
-                        <Text style={styles.settingsLabel}>Label</Text>
-                        <TextInput
-                            style={styles.settingsInput}
-                            placeholder="Enter label"
-                            placeholderTextColor={Colors.textMuted}
-                            value={label}
-                            onChangeText={(text) => setLabel(text.slice(0, 16))}
-                            maxLength={16}
-                        />
-                    </View>
-
-                    {/* Divider */}
-                    <View style={styles.settingsDivider} />
-
-                    {/* 3. Alarm Sound - shows sound name, press to navigate */}
+                {/* Alarm sound */}
+                <View style={styles.settingsList}>
                     <Pressable style={styles.settingsRow} onPress={handleSelectSound}>
-                        <Text style={styles.settingsLabel}>Alarm sound</Text>
+                        <Text style={styles.settingsLabel}>{t('edit.sound')}</Text>
                         <View style={styles.settingsValueContainer}>
                             <Text style={styles.settingsValue} numberOfLines={1} ellipsizeMode="tail">
-                                {soundName}
+                                {getSoundName(soundId)}
                             </Text>
                             <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
                         </View>
                     </Pressable>
                 </View>
 
+                {/* Wake-up games + Still awake? check */}
+                <View style={styles.settingsList}>
+                    {/* Wake-up game difficulty */}
+                    <View style={styles.settingsRow}>
+                        <Text style={styles.settingsLabel}>{t('edit.steps')}</Text>
+                        <View style={styles.chips}>
+                            {STEP_OPTIONS.map(n => (
+                                <Pressable
+                                    key={n}
+                                    style={[styles.chip, steps === n && styles.chipActive]}
+                                    onPress={() => setSteps(n)}
+                                    accessibilityRole="button"
+                                    accessibilityState={{ selected: steps === n }}
+                                    accessibilityLabel={t('edit.stepsValue', { count: n })}
+                                >
+                                    <Text style={[styles.chipText, steps === n && styles.chipTextActive]}>{n}</Text>
+                                </Pressable>
+                            ))}
+                        </View>
+                    </View>
+
+                    <View style={styles.settingsDivider} />
+
+                    <View style={styles.settingsRow}>
+                        <Text style={styles.settingsLabel}>{t('edit.math')}</Text>
+                        <View style={styles.chips}>
+                            {MATH_LEVELS.map(level => (
+                                <Pressable
+                                    key={level}
+                                    style={[styles.chip, mathLevel === level && styles.chipActive]}
+                                    onPress={() => setMathLevel(level)}
+                                    accessibilityRole="button"
+                                    accessibilityState={{ selected: mathLevel === level }}
+                                >
+                                    <Text style={[styles.chipText, mathLevel === level && styles.chipTextActive]}>
+                                        {t(`edit.mathLevel_${level}`)}
+                                    </Text>
+                                </Pressable>
+                            ))}
+                        </View>
+                    </View>
+
+                    <View style={styles.settingsDivider} />
+
+                    {/* Still awake? check */}
+                    <View style={styles.settingsRow}>
+                        <View style={styles.wakeCheckText}>
+                            <Text style={styles.settingsLabel}>{t('edit.wakeCheck')}</Text>
+                            <Text style={styles.settingsHint}>{t('edit.wakeCheckHint')}</Text>
+                        </View>
+                        <Switch
+                            value={wakeCheck}
+                            onValueChange={setWakeCheck}
+                            trackColor={{ true: Colors.accent, false: Colors.surfaceAlt }}
+                            accessibilityLabel={t('edit.wakeCheck')}
+                        />
+                    </View>
+                </View>
+
                 {/* Delete Button */}
                 {!isNew && (
                     <Pressable style={styles.deleteButton} onPress={handleDelete}>
                         <Ionicons name="trash-outline" size={20} color={Colors.danger} />
-                        <Text style={styles.deleteText}>Delete Alarm</Text>
+                        <Text style={styles.deleteText}>{t('edit.delete')}</Text>
                     </Pressable>
                 )}
 
@@ -424,9 +472,6 @@ const styles = StyleSheet.create({
         paddingHorizontal: Spacing.md,
         paddingVertical: Spacing.sm,
     },
-    headerButton: {
-        padding: Spacing.sm,
-    },
     headerCenter: {
         alignItems: 'center',
     },
@@ -451,8 +496,46 @@ const styles = StyleSheet.create({
         paddingVertical: Spacing.xl,
         gap: Spacing.md,
     },
-    periodPicker: {
-        width: 80,
+    bedtimes: {
+        alignItems: 'center',
+        gap: Spacing.xs,
+        marginTop: -Spacing.md,
+        marginBottom: Spacing.lg,
+    },
+    bedtimesLabel: {
+        fontSize: FontSize.xs,
+        fontFamily: FontFamily.medium,
+        color: Colors.textSecondary,
+    },
+    bedtimeRow: {
+        flexDirection: 'row',
+        gap: Spacing.xl,
+    },
+    bedtime: {
+        alignItems: 'center',
+    },
+    bedtimeTime: {
+        fontSize: FontSize.md,
+        fontFamily: FontFamily.medium,
+        color: Colors.textSecondary,
+        fontVariant: ['tabular-nums'],
+    },
+    bedtimeSuggested: {
+        color: Colors.accent,
+        fontFamily: FontFamily.bold,
+    },
+    bedtimeHours: {
+        fontSize: FontSize.xs,
+        fontFamily: FontFamily.regular,
+        color: Colors.textMuted,
+    },
+    bedtimePassed: {
+        opacity: 0.4,
+    },
+    timeColon: {
+        fontSize: FontSize.title,
+        fontFamily: FontFamily.bold,
+        color: Colors.text,
     },
     hourPicker: {
         width: 100,
@@ -466,6 +549,7 @@ const styles = StyleSheet.create({
         borderRadius: BorderRadius.md,
         borderWidth: 1,
         borderColor: Colors.border,
+        marginBottom: Spacing.lg,
     },
     settingsRow: {
         flexDirection: 'row',
@@ -505,6 +589,38 @@ const styles = StyleSheet.create({
         marginLeft: Spacing.md,
         paddingVertical: 0,
     },
+    chips: {
+        flexDirection: 'row',
+        gap: Spacing.xs,
+        marginLeft: Spacing.md,
+    },
+    chip: {
+        paddingHorizontal: Spacing.sm + 4,
+        paddingVertical: 6,
+        borderRadius: BorderRadius.full,
+        backgroundColor: Colors.surfaceAlt,
+    },
+    chipActive: {
+        backgroundColor: Colors.accent,
+    },
+    chipText: {
+        fontSize: FontSize.sm,
+        fontFamily: FontFamily.medium,
+        color: Colors.textSecondary,
+    },
+    chipTextActive: {
+        color: Colors.background,
+    },
+    wakeCheckText: {
+        flex: 1,
+        marginRight: Spacing.md,
+    },
+    settingsHint: {
+        fontSize: FontSize.xs,
+        fontFamily: FontFamily.regular,
+        color: Colors.textSecondary,
+        marginTop: 2,
+    },
     settingsDivider: {
         height: 1,
         backgroundColor: Colors.border,
@@ -542,7 +658,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
         paddingVertical: Spacing.lg,
-        marginTop: Spacing.xl,
+        marginTop: Spacing.sm,
         gap: Spacing.sm,
     },
     deleteText: {

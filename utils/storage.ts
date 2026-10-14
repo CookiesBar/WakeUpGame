@@ -1,5 +1,7 @@
 // Storage utilities for alarm data persistence
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import type { MathLevel } from './math';
+import type { WakeLog } from './stats';
 
 const ALARMS_KEY = '@wake_up_game_alarms';
 const CUSTOM_SOUNDS_KEY = '@wake_up_game_custom_sounds';
@@ -12,6 +14,9 @@ export interface Alarm {
     days: boolean[]; // [Sun, Mon, Tue, Wed, Thu, Fri, Sat]
     soundUri: string | null; // null = default sound
     createdAt: number;
+    wakeCheck?: boolean; // "Still awake?" check; undefined = on (alarms from before 2.0.2)
+    steps?: number; // walk goal; undefined = DEFAULT_STEPS
+    mathLevel?: MathLevel; // undefined = DEFAULT_MATH_LEVEL
 }
 
 export interface CustomSound {
@@ -101,13 +106,35 @@ export const saveCustomSound = async (sound: CustomSound): Promise<void> => {
     }
 };
 
-export const deleteCustomSound = async (id: string): Promise<void> => {
+// Pending "Still awake?" checks: alarmId → epoch ms the check starts ringing
+const WAKE_CHECKS_KEY = '@wake_up_game_wake_checks';
+
+export const getWakeChecks = async (): Promise<Record<string, number>> => {
     try {
-        const sounds = await getCustomSounds();
-        const filtered = sounds.filter(s => s.id !== id);
-        await AsyncStorage.setItem(CUSTOM_SOUNDS_KEY, JSON.stringify(filtered));
+        const json = await AsyncStorage.getItem(WAKE_CHECKS_KEY);
+        return json ? JSON.parse(json) : {};
     } catch (error) {
-        console.error('Error deleting custom sound:', error);
-        throw error;
+        console.error('Error reading wake checks:', error);
+        return {};
     }
+};
+
+export const saveWakeChecks = (checks: Record<string, number>): Promise<void> =>
+    AsyncStorage.setItem(WAKE_CHECKS_KEY, JSON.stringify(checks));
+
+// Finished wake-ups (epoch ms), for the streak on the ring screen
+const WAKE_LOG_KEY = '@wake_up_game_wake_log';
+const WAKE_LOG_MAX = 400;
+
+export const logWake = async (at: number): Promise<WakeLog> => {
+    let log: WakeLog = [];
+    try {
+        const parsed = JSON.parse((await AsyncStorage.getItem(WAKE_LOG_KEY)) ?? '[]');
+        if (Array.isArray(parsed)) log = parsed;
+    } catch (error) {
+        console.error('Error reading wake log:', error);
+    }
+    log = [...log, at].slice(-WAKE_LOG_MAX);
+    await AsyncStorage.setItem(WAKE_LOG_KEY, JSON.stringify(log));
+    return log;
 };

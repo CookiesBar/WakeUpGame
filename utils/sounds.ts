@@ -1,6 +1,7 @@
 // Audio playback utilities
-import { Audio } from 'expo-av';
+import { AudioPlayer, createAudioPlayer, setAudioModeAsync } from 'expo-audio';
 import * as DocumentPicker from 'expo-document-picker';
+import { t } from '../i18n';
 import { CustomSound, generateId, saveCustomSound } from './storage';
 
 // Bundled alarm sounds registry.
@@ -41,98 +42,79 @@ export const getSoundSource = (soundId?: string | null): any => {
     return { uri: soundId };
 };
 
-// Get sound name by ID or URI
+// Display name for a bundled sound ID or a custom sound URI
 export const getSoundName = (soundId?: string | null): string => {
-    if (!soundId) {
-        const defaultSound = BUNDLED_SOUNDS.find(s => s.id === DEFAULT_SOUND_ID);
-        return defaultSound?.name || 'Default';
-    }
-
-    const bundledSound = BUNDLED_SOUNDS.find(s => s.id === soundId);
-    if (bundledSound) {
-        return bundledSound.name;
-    }
-
-    // Custom sound - return a generic name or extract from URI
-    return 'Custom';
+    const id = soundId || DEFAULT_SOUND_ID;
+    return BUNDLED_SOUNDS.some(s => s.id === id) ? t(`sounds.names.${id}`) : t('sounds.custom');
 };
 
-let currentSound: Audio.Sound | null = null;
+// The sounds screen hands its pick back to the alarm editor through here
+// (navigating "back" with params would push a second, fresh editor instead).
+let pickedSound: string | null = null;
+export const setPickedSound = (soundId: string) => { pickedSound = soundId; };
+export const takePickedSound = (): string | null => {
+    const soundId = pickedSound;
+    pickedSound = null;
+    return soundId;
+};
 
-// Initialize audio mode for background playback
+// One player shared by the ringing alarm and sound previews (expo-av was
+// removed after SDK 54; createAudioPlayer works outside React components).
+let currentPlayer: AudioPlayer | null = null;
+let previewTimer: ReturnType<typeof setTimeout> | null = null;
+
+// Play even in silent mode and keep playing in the background
 export const initializeAudio = async (): Promise<void> => {
     try {
-        await Audio.setAudioModeAsync({
-            allowsRecordingIOS: false,
-            staysActiveInBackground: true,
-            playsInSilentModeIOS: true,
-            shouldDuckAndroid: false,
-            playThroughEarpieceAndroid: false,
-        });
+        await setAudioModeAsync({ playsInSilentMode: true, shouldPlayInBackground: true });
     } catch (error) {
         console.error('Error initializing audio:', error);
     }
 };
 
-// Play alarm sound (accepts soundId for bundled sounds or URI for custom sounds)
+const play = (soundId: string | null | undefined, loop: boolean): void => {
+    stopAlarmSound();
+    const source = getSoundSource(soundId);
+    if (!source) return;
+    const player = createAudioPlayer(source);
+    player.loop = loop;
+    player.volume = 1.0;
+    player.play();
+    currentPlayer = player;
+};
+
+// Play alarm sound on loop (bundled sound ID or custom sound URI)
 export const playAlarmSound = async (soundId?: string | null): Promise<void> => {
     try {
-        // Stop any currently playing sound
-        await stopAlarmSound();
-
-        const soundSource = getSoundSource(soundId);
-        if (!soundSource) {
-            console.log('No sound source found');
-            return;
-        }
-
-        const { sound } = await Audio.Sound.createAsync(soundSource, {
-            isLooping: true,
-            volume: 1.0,
-        });
-
-        currentSound = sound;
-        await sound.playAsync();
+        play(soundId, true);
     } catch (error) {
         console.error('Error playing alarm sound:', error);
     }
 };
 
-// Stop alarm sound
 export const stopAlarmSound = async (): Promise<void> => {
+    if (previewTimer) clearTimeout(previewTimer);
+    previewTimer = null;
+    if (!currentPlayer) return;
     try {
-        if (currentSound) {
-            await currentSound.stopAsync();
-            await currentSound.unloadAsync();
-            currentSound = null;
-        }
+        currentPlayer.pause();
+        currentPlayer.remove();
     } catch (error) {
         console.error('Error stopping alarm sound:', error);
     }
+    currentPlayer = null;
 };
 
-// Preview a sound (accepts soundId for bundled sounds or URI for custom sounds)
+// 0–1. The ring screen fades the alarm as the user makes progress.
+export const setAlarmVolume = (volume: number): void => {
+    if (currentPlayer) currentPlayer.volume = volume;
+};
+
+// Preview a sound for 3 seconds
 export const previewSound = async (soundId?: string | null): Promise<void> => {
     try {
-        await stopAlarmSound();
-
-        const soundSource = getSoundSource(soundId);
-        if (!soundSource) {
-            console.log('No sound source found');
-            return;
-        }
-
-        const { sound } = await Audio.Sound.createAsync(soundSource, {
-            volume: 1.0,
-        });
-
-        currentSound = sound;
-        await sound.playAsync();
-
-        // Stop after 3 seconds preview
-        setTimeout(async () => {
-            await stopAlarmSound();
-        }, 3000);
+        play(soundId, false);
+        previewTimer = setTimeout(stopAlarmSound, 3000);
     } catch (error) {
         console.error('Error previewing sound:', error);
     }

@@ -1,26 +1,28 @@
 import {
-  Inter_400Regular,
-  Inter_500Medium,
-  Inter_600SemiBold,
-  Inter_700Bold,
-} from '@expo-google-fonts/inter';
+  PlusJakartaSans_400Regular,
+  PlusJakartaSans_500Medium,
+  PlusJakartaSans_600SemiBold,
+  PlusJakartaSans_700Bold,
+  PlusJakartaSans_800ExtraBold,
+} from '@expo-google-fonts/plus-jakarta-sans';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { useFonts } from 'expo-font';
 import * as Notifications from 'expo-notifications';
 import { router, Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
-import { StyleSheet } from 'react-native';
+import { Platform, StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import Onboarding from '@/components/Onboarding';
-import { getPendingDemoAlarm } from '@/components/OnboardingAlarmDemo';
-import { Colors } from '@/constants/theme';
+import { Colors as WakeyColors } from '@/constants/wakeyTheme';
 import { AlarmProvider } from '@/contexts/AlarmContext';
-import { BACKUP_WINDOW_MS } from '@/utils/notifications';
+import { LocaleProvider } from '@/contexts/LocaleContext';
+import { BACKUP_WINDOW_MS, processWakeChecks } from '@/utils/notifications';
 import { checkPremiumStatus, configureRevenueCat, presentPaywall } from '@/utils/revenueCat';
 import { initializeAudio, playAlarmSound } from '@/utils/sounds';
 
@@ -29,7 +31,7 @@ export {
 } from 'expo-router';
 
 export const unstable_settings = {
-  initialRouteName: '(tabs)',
+  initialRouteName: 'index',
 };
 
 const ONBOARDING_COMPLETE_KEY = 'hasSeenOnboarding';
@@ -44,29 +46,47 @@ const handleAlarmNotification = (notification: Notifications.Notification) => {
     // Play alarm sound
     playAlarmSound(data.soundUri as string | undefined);
 
-    // Navigate to full-screen alarm ring screen
+    // Navigate to the full-screen ring + wake-up game
     router.push({
-      pathname: '/alarm-ring' as const,
+      pathname: '/ring',
       params: {
         alarmId: data.alarmId as string,
-        label: data.label as string | undefined,
-        time: data.time as string | undefined,
+        label: (data.label as string | undefined) ?? '',
       },
-    } as any);
+    });
+  }
+};
+
+// Hard paywall: keep presenting it until the user has premium. RevenueCat is
+// only configured on iOS; elsewhere every call fails, which used to spin this
+// loop forever, so skip it there. Expo Go only has RevenueCat's mock mode
+// (nothing can be bought), so skip it there too or it blocks testing.
+const ensurePremium = async () => {
+  if (Platform.OS !== 'ios' || Constants.executionEnvironment === ExecutionEnvironment.StoreClient) return;
+  try {
+    await configureRevenueCat();
+    while (!(await checkPremiumStatus())) {
+      // presentPaywall returns false immediately when it can't show (offline):
+      // back off instead of hammering it.
+      if (!(await presentPaywall())) await new Promise(r => setTimeout(r, 3000));
+    }
+  } catch (error) {
+    console.error('Error checking premium status:', error);
   }
 };
 
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
-    Inter_400Regular,
-    Inter_500Medium,
-    Inter_600SemiBold,
-    Inter_700Bold,
+    // The one app font (constants/theme + constants/wakeyTheme)
+    PlusJakartaSans_400Regular,
+    PlusJakartaSans_500Medium,
+    PlusJakartaSans_600SemiBold,
+    PlusJakartaSans_700Bold,
+    PlusJakartaSans_800ExtraBold,
   });
 
   const [isOnboardingComplete, setIsOnboardingComplete] = useState<boolean | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
-  const [isCheckingPremium, setIsCheckingPremium] = useState(false);
   const notificationListener = useRef<Notifications.EventSubscription>(null);
   const responseListener = useRef<Notifications.EventSubscription>(null);
   // alarmId → when we last handled it. Backup notifications share the alarmId
@@ -75,6 +95,11 @@ export default function RootLayout() {
 
   // Handle alarm notification with deduplication
   const handleAlarmNotificationSafe = (notification: Notifications.Notification) => {
+    // "Still awake?" ringing while the app is open (or tapped) = awake.
+    if (notification.request.content.data?.checkAlarmId) {
+      processWakeChecks();
+      return;
+    }
     const alarmId = notification.request.content.data?.alarmId as string | undefined;
     if (!alarmId) return;
 
@@ -112,44 +137,11 @@ export default function RootLayout() {
       }
     };
 
-    const checkAndShowPaywallIfNeeded = async (onboardingComplete: boolean) => {
-      // Only check premium for users who have completed onboarding
-      if (!onboardingComplete) return;
-
-      try {
-        setIsCheckingPremium(true);
-        await configureRevenueCat();
-
-        const isPremium = await checkPremiumStatus();
-        console.log('Premium status on app open:', isPremium);
-
-        if (!isPremium) {
-          console.log('User is not premium, showing hard paywall');
-          // Show the hard paywall - user must subscribe to continue
-          const result = await presentPaywall();
-          console.log('Paywall result:', result);
-          // If user didn't purchase, keep showing paywall (by calling again)
-          if (!result) {
-            // User closed paywall without purchasing - show it again
-            // This creates a loop until user subscribes
-            while (!(await checkPremiumStatus())) {
-              console.log('User still not premium, showing paywall again');
-              await presentPaywall();
-            }
-          }
-        }
-      } catch (error) {
-        console.error('Error checking premium status:', error);
-      } finally {
-        setIsCheckingPremium(false);
-      }
-    };
-
     if (fontsLoaded) {
       checkOnboarding().then((isComplete) => {
         SplashScreen.hideAsync();
         initializeAudio();
-        checkAndShowPaywallIfNeeded(isComplete);
+        if (isComplete) ensurePremium();
       });
     }
   }, [fontsLoaded]);
@@ -169,11 +161,14 @@ export default function RootLayout() {
     });
 
     // Check if app was opened from notification (only on initial mount)
+    // The last response survives app restarts, so without the age check every
+    // cold start re-opened the ring screen for an alarm dismissed long ago.
     Notifications.getLastNotificationResponseAsync().then(response => {
-      if (response) {
+      if (response && Date.now() - response.notification.date < BACKUP_WINDOW_MS) {
         console.log('App opened from notification:', response);
         handleAlarmNotificationSafe(response.notification);
       }
+      Notifications.clearLastNotificationResponse();
     });
 
     return () => {
@@ -188,26 +183,16 @@ export default function RootLayout() {
 
   const handleOnboardingComplete = async () => {
     try {
+      // The onboarding already saved and scheduled the user's first alarm.
       await AsyncStorage.setItem(ONBOARDING_COMPLETE_KEY, 'true');
-      console.log('Onboarding complete, hiding overlay');
-
-      // Check if user became premium and create the demo alarm
-      const isPremium = await checkPremiumStatus();
-      if (isPremium) {
-        const pendingAlarm = await getPendingDemoAlarm();
-        if (pendingAlarm) {
-          console.log('User is premium, will create alarm from demo settings');
-          // Store the pending alarm flag for AlarmContext to pick up
-          await AsyncStorage.setItem('@create_pending_alarm', 'true');
-        }
-      }
-
-      setShowOnboarding(false);
-      setIsOnboardingComplete(true);
     } catch (error) {
       console.error('Error saving onboarding status:', error);
-      setShowOnboarding(false);
     }
+    setShowOnboarding(false);
+    setIsOnboardingComplete(true);
+    // Closing the onboarding paywall without buying used to let the user in
+    // until the next cold start.
+    ensurePremium();
   };
 
   if (!fontsLoaded || isOnboardingComplete === null) {
@@ -217,61 +202,56 @@ export default function RootLayout() {
   // Show onboarding as a full-screen overlay
   if (showOnboarding) {
     return (
-      <GestureHandlerRootView style={styles.container}>
-        <StatusBar style="dark" />
-        <SafeAreaView style={styles.onboardingContainer}>
-          <Onboarding onComplete={handleOnboardingComplete} />
-        </SafeAreaView>
-      </GestureHandlerRootView>
+      <LocaleProvider>
+        <GestureHandlerRootView style={styles.container}>
+          <StatusBar style="dark" />
+          <SafeAreaView style={styles.onboardingContainer}>
+            <Onboarding onComplete={handleOnboardingComplete} />
+          </SafeAreaView>
+        </GestureHandlerRootView>
+      </LocaleProvider>
     );
   }
 
   return (
-    <GestureHandlerRootView style={styles.container}>
-      <AlarmProvider>
-        <StatusBar style="dark" />
-        <Stack screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen
-            name="alarm/[id]"
-            options={{
-              presentation: 'card',
-              animation: 'slide_from_bottom',
-              animationDuration: 200, // Faster animation
-              headerShown: false,
-            }}
-          />
-          <Stack.Screen
-            name="alarm/sounds"
-            options={{
-              presentation: 'card',
-              animation: 'slide_from_right',
-              animationDuration: 250,
-              headerShown: false,
-              gestureEnabled: true,
-              gestureDirection: 'horizontal',
-            }}
-          />
-          <Stack.Screen
-            name="alarm-ring"
-            options={{
-              presentation: 'fullScreenModal',
-              headerShown: false,
-              gestureEnabled: false,
-              animation: 'fade',
-            }}
-          />
-          <Stack.Screen
-            name="game"
-            options={{
-              presentation: 'fullScreenModal',
-              headerShown: false,
-              gestureEnabled: false,
-            }}
-          />
-        </Stack>
-      </AlarmProvider>
-    </GestureHandlerRootView>
+    <LocaleProvider>
+      <GestureHandlerRootView style={styles.container}>
+        <AlarmProvider>
+          <StatusBar style="dark" />
+          <Stack screenOptions={{ headerShown: false }}>
+            <Stack.Screen name="index" />
+            <Stack.Screen
+              name="alarm/[id]"
+              options={{
+                animation: 'slide_from_bottom',
+                animationDuration: 200, // Faster animation
+              }}
+            />
+            <Stack.Screen
+              name="alarm/sounds"
+              options={{
+                animation: 'slide_from_right',
+                animationDuration: 250,
+              }}
+            />
+            <Stack.Screen
+              name="settings"
+              options={{
+                animation: 'slide_from_right',
+              }}
+            />
+            <Stack.Screen
+              name="ring"
+              options={{
+                presentation: 'fullScreenModal',
+                gestureEnabled: false,
+                animation: 'fade',
+              }}
+            />
+          </Stack>
+        </AlarmProvider>
+      </GestureHandlerRootView>
+    </LocaleProvider>
   );
 }
 
@@ -281,6 +261,6 @@ const styles = StyleSheet.create({
   },
   onboardingContainer: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: WakeyColors.paper,
   },
 });
