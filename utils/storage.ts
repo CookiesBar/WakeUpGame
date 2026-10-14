@@ -163,3 +163,26 @@ export async function logWake(wake: Wake): Promise<Wake[]> {
   await AsyncStorage.setItem(WAKE_LOG_KEY, JSON.stringify(log));
   return log;
 }
+
+// --- Onboarding ---
+
+const ONBOARDING_KEY = '@wakeup_onboarding';
+
+/** What the user told onboarding; kept for personalisation and analytics. */
+export interface OnboardingAnswers {
+  goal: string | null;
+  pains: string[];
+  doneAt: number;
+}
+
+export async function getOnboarding(): Promise<OnboardingAnswers | null> {
+  try {
+    return JSON.parse((await AsyncStorage.getItem(ONBOARDING_KEY)) ?? 'null');
+  } catch {
+    return null;
+  }
+}
+
+export async function setOnboarding(answers: OnboardingAnswers): Promise<void> {
+  await AsyncStorage.setItem(ONBOARDING_KEY, JSON.stringify(answers));
+}

@@ -25,6 +25,7 @@ import {
   generateId,
   getAlarm,
   getAlarms,
+  getOnboarding,
   getPausedUntil,
   getRoutines,
   type Routine,
@@ -49,8 +50,8 @@ interface AlarmContextValue {
   /** User finished the wake-up challenge: silence the burst, arm the next one. */
   dismissAlarm: (id: string) => Promise<void>;
   refreshAlarms: () => Promise<void>;
-  /** New routine with one starter alarm. */
-  addRoutine: (name: string, days: Weekday[]) => Promise<Routine>;
+  /** New routine with one starter alarm (`starter` overrides its defaults). */
+  addRoutine: (name: string, days: Weekday[], starter?: Partial<Alarm>) => Promise<Routine>;
   updateRoutine: (routine: Routine) => Promise<void>;
   removeRoutine: (id: string) => Promise<void>;
   toggleRoutine: (id: string) => Promise<void>;
@@ -122,7 +123,8 @@ export const AlarmProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   useEffect(() => {
     (async () => {
-      await requestNotificationPermissions();
+      // Onboarding explains why first, then asks; after that, re-ask (and set up Android channels) on launch.
+      if (await getOnboarding()) await requestNotificationPermissions();
       let [all, allRoutines] = await Promise.all([getAlarms(), getRoutines()]);
       // Nap routines were removed; their steps have no real time (00:00), so drop any saved ones.
       const naps = new Set(allRoutines.filter((r) => (r as { kind?: string }).kind === 'nap').map((r) => r.id));
@@ -249,7 +251,7 @@ export const AlarmProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   );
 
   const addRoutine = useCallback(
-    async (name: string, days: Weekday[]): Promise<Routine> => {
+    async (name: string, days: Weekday[], starter?: Partial<Alarm>): Promise<Routine> => {
       const routine: Routine = {
         id: generateId(),
         name,
@@ -271,6 +273,7 @@ export const AlarmProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         wakeCheck: false,
         mission: 'math',
         mathLevel: DEFAULT_MATH_LEVEL,
+        ...starter,
       });
       return routine;
     },

@@ -54,6 +54,19 @@
         "8083"
       ],
       "port": 8083
+    },
+    {
+      "name": "expo-web-8085",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "expo",
+        "start",
+        "--web",
+        "--port",
+        "8085"
+      ],
+      "port": 8085,
+      "autoPort": false
     }
   ]
 }

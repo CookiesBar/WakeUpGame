@@ -1,9 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
+import * as Notifications from 'expo-notifications';
 import { router } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { useEffect, useState } from 'react';
-import { Animated, Easing, Modal, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { Alert, Animated, DevSettings, Easing, Modal, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Pressable from '@/components/Pressable';
@@ -15,6 +17,21 @@ import { manageSubscription } from '@/utils/revenueCat';
 
 const TERMS = 'https://app.notion.com/p/Terms-of-Service-3e187bf678be806496d7c7f1ef9d61b0';
 const PRIVACY = 'https://resonant-stock-52e.notion.site/Privacy-Policy-EN-43a8162e83de4eb58b61ee67a8dddcd2';
+
+// Dev only: wipe storage + scheduled alarms, then reload into a fresh install state.
+const clearUserData = () =>
+  Alert.alert('Clear user data?', 'Deletes all routines, alarms, stats and settings.', [
+    { text: 'Cancel', style: 'cancel' },
+    {
+      text: 'Clear',
+      style: 'destructive',
+      onPress: async () => {
+        await Notifications.cancelAllScheduledNotificationsAsync();
+        await AsyncStorage.clear();
+        DevSettings.reload();
+      },
+    },
+  ]);
 
 const PREFS: LanguagePref[] = ['system', 'en', 'es', 'sv', 'de'];
 const LANG_NAME: Record<Exclude<LanguagePref, 'system'>, string> = { en: 'English', es: 'Español', sv: 'Svenska', de: 'Deutsch' };
@@ -105,6 +122,15 @@ export default function SettingsScreen() {
             <Item label={t('settings.terms')} icon="open-outline" onPress={() => open(TERMS)} />
             <Item label={t('settings.privacy')} icon="open-outline" onPress={() => open(PRIVACY)} last />
           </View>
+
+          {__DEV__ && (
+            <>
+              <Text style={styles.label}>Developer</Text>
+              <View style={styles.group}>
+                <Item label="Clear user data" icon="trash-outline" onPress={clearUserData} last />
+              </View>
+            </>
+          )}
 
           <Text style={styles.version}>v{Constants.expoConfig?.version}</Text>
         </ScrollView>

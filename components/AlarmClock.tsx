@@ -21,7 +21,7 @@ export interface ClockAlarm {
 
 /**
  * Analog clock face with a dash every 12 minutes. A dash holding an alarm is
- * longer and dark; grey once every alarm on it has rung. 12-hour dial: AM and PM share a dash.
+ * longer and yellow; grey once every alarm on it has rung. 12-hour dial: AM and PM share a dash.
  */
 export default function AlarmClock({
   size,
@@ -51,7 +51,7 @@ export default function AlarmClock({
     const hour = i % 5 === 0;
     const [from, width, color] =
       alarm !== undefined
-        ? [0.72, 5, alarm ? Colors.ink900 : Colors.ink200]
+        ? [0.72, 5, alarm ? Colors.accent : Colors.ink200]
         : hour
           ? [0.83, 3, Colors.ink400]
           : [0.9, 1.5, Colors.ink200];
@@ -122,11 +122,6 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.white,
     borderWidth: BORDER,
     borderColor: Colors.primary,
-    shadowColor: Colors.primary,
-    shadowOpacity: 0.25,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 8,
   },
   numeral: { position: 'absolute', alignItems: 'center', justifyContent: 'center' },
   numeralText: { fontFamily: FontFamily.displayBold, color: Colors.ink400 },

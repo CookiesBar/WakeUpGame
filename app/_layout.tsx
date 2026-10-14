@@ -28,6 +28,7 @@ import {
   type NotifKind,
 } from '@/utils/notifications';
 import { configureRevenueCat } from '@/utils/revenueCat';
+import { getOnboarding } from '@/utils/storage';
 import { initializeAudio, playAlarmSound } from '@/utils/sounds';
 
 export { ErrorBoundary } from 'expo-router';
@@ -91,6 +92,8 @@ export default function RootLayout() {
     (async () => {
       await configureRevenueCat(); // configured, not gating (paywall is a later phase)
       await initializeAudio();
+      // First launch: onboarding replaces home before the splash lifts, so home never flashes.
+      if (!(await getOnboarding())) router.replace('/onboarding');
       await SplashScreen.hideAsync();
     })();
   }, [fontsLoaded]);
@@ -144,6 +147,7 @@ export default function RootLayout() {
           <StatusBar style="dark" />
           <Stack screenOptions={{ headerShown: false }}>
             <Stack.Screen name="index" />
+            <Stack.Screen name="onboarding" options={{ gestureEnabled: false, animation: 'fade' }} />
             <Stack.Screen
               name="alarm/[id]"
               options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
