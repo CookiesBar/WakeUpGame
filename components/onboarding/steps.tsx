@@ -1,4 +1,5 @@
-// The onboarding steps, in order. Each alarm setting gets its own step.
+// The onboarding steps, in order: build the alarm, try the game, tune it, then the
+// story, and the notification ask last, once they're invested. Each setting gets its own step.
 import { Ionicons } from '@expo/vector-icons';
 import { type ComponentProps, type JSX, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
@@ -19,8 +20,8 @@ import { DEFAULT_STEPS, MATH_LEVELS, STEP_OPTIONS } from '@/utils/wakeCheck';
 import { Cta, enter, Grow, Option, Page, styles as kit, tap, TextButton, Title } from './kit';
 
 export const STEPS = [
-    'welcome', 'goal', 'pains', 'spiral', 'result', 'compare', 'game',
-    'time', 'days', 'steps', 'math', 'sound', 'check', 'label', 'notify', 'review',
+    'welcome', 'time', 'days', 'game', 'steps', 'math', 'sound', 'check', 'label',
+    'goal', 'pains', 'spiral', 'result', 'compare', 'notify',
 ] as const;
 export type StepId = (typeof STEPS)[number];
 
@@ -46,7 +47,6 @@ export interface StepProps {
     answers: Answers;
     setAnswers: (patch: Partial<Answers>) => void;
     next: () => void;
-    goTo: (id: StepId) => void;
     finish: () => Promise<void>;
 }
 
@@ -550,13 +550,14 @@ function Label({ draft, set, next }: StepProps) {
     );
 }
 
-function Notify({ next }: StepProps) {
+/** Last step: either button saves the alarm and moves on to the personalizing screen. */
+function Notify({ finish }: StepProps) {
     const { t } = useLocale();
     const [asking, setAsking] = useState(false);
     const allow = async () => {
         setAsking(true);
         await requestNotificationPermissions();
-        next();
+        await finish();
     };
     const bullets: [Icon, string][] = [
         ['alarm-outline', t('onboarding.notify.b1')],
@@ -568,7 +569,7 @@ function Notify({ next }: StepProps) {
             footer={
                 <>
                     <Cta label={t('onboarding.notify.allow')} onPress={allow} loading={asking} />
-                    <TextButton label={t('onboarding.notify.notNow')} onPress={next} />
+                    <TextButton label={t('onboarding.notify.notNow')} onPress={finish} />
                 </>
             }
         >
@@ -584,65 +585,6 @@ function Notify({ next }: StepProps) {
                     <Text style={s.bulletText}>{text}</Text>
                 </Animated.View>
             ))}
-        </Page>
-    );
-}
-
-function Review({ draft, goTo, finish }: StepProps) {
-    const { t } = useLocale();
-    const [saving, setSaving] = useState(false);
-    const create = async () => {
-        setSaving(true);
-        try {
-            await finish();
-        } finally {
-            setSaving(false);
-        }
-    };
-    const rows: [Icon, string, string, StepId][] = [
-        ['footsteps', t('onboarding.review.walk'), t('edit.stepsValue', { count: draft.steps }), 'steps'],
-        ['calculator', t('onboarding.review.math'), t(`edit.mathLevel_${draft.mathLevel}`), 'math'],
-        ['musical-notes', t('onboarding.review.sound'), getSoundName(draft.soundId), 'sound'],
-        ['eye', t('onboarding.review.check'), t(draft.wakeCheck ? 'onboarding.review.on' : 'onboarding.review.off'), 'check'],
-    ];
-    return (
-        <Page
-            footer={
-                <Cta
-                    label={saving ? t('onboarding.review.creating') : t('onboarding.review.create')}
-                    onPress={create}
-                    loading={saving}
-                />
-            }
-        >
-            <Title title={t('onboarding.review.title')} sub={t('onboarding.review.hint')} />
-            <Animated.View entering={enter(2)} style={s.alarmCard}>
-                <Pressable onPress={() => goTo('label')} accessibilityRole="button">
-                    <Text style={s.alarmLabel}>{draft.label.trim() || t('onboarding.defaultLabel')}</Text>
-                </Pressable>
-                <Pressable onPress={() => goTo('time')} accessibilityRole="button">
-                    <Text style={s.alarmTime}>{`${pad(draft.hours)}:${pad(draft.minutes)}`}</Text>
-                </Pressable>
-                <Pressable onPress={() => goTo('days')} accessibilityRole="button">
-                    <Text style={s.alarmDays}>{daysText(draft.days, t)}</Text>
-                </Pressable>
-            </Animated.View>
-            <Animated.View entering={enter(3)} style={[s.card, s.rows]}>
-                {rows.map(([icon, label, value, step], i) => (
-                    <Pressable
-                        key={step}
-                        onPress={() => goTo(step)}
-                        style={[s.row, i > 0 && s.tDivider]}
-                        accessibilityRole="button"
-                        accessibilityLabel={`${label}: ${value}`}
-                    >
-                        <Ionicons name={icon} size={18} color={Colors.primary} />
-                        <Text style={s.rowLabel}>{label}</Text>
-                        <Text style={s.rowValue}>{value}</Text>
-                        <Ionicons name="chevron-forward" size={16} color={Colors.ink400} />
-                    </Pressable>
-                ))}
-            </Animated.View>
         </Page>
     );
 }
@@ -663,7 +605,6 @@ export const VIEWS: Record<StepId, (p: StepProps) => JSX.Element> = {
     check: Check,
     label: Label,
     notify: Notify,
-    review: Review,
 };
 
 // Keep the page exit in one place so every step leaves the same way.
@@ -843,26 +784,4 @@ const s = StyleSheet.create({
     },
     bulletText: { flex: 1, fontFamily: FontFamily.bodyBold, fontSize: FontSize.md, lineHeight: 22, color: Colors.ink700 },
 
-    alarmCard: {
-        alignItems: 'center',
-        paddingVertical: Spacing.xxl,
-        borderRadius: BorderRadius['2xl'],
-        backgroundColor: Colors.primary,
-        marginBottom: Spacing.lg,
-        ...Shadow.blue,
-    },
-    alarmLabel: { fontFamily: FontFamily.bodyBold, fontSize: FontSize.md, color: Colors.blue100 },
-    alarmTime: {
-        fontFamily: FontFamily.displayBold,
-        fontSize: 68,
-        lineHeight: 76,
-        letterSpacing: -2,
-        color: Colors.white,
-        fontVariant: ['tabular-nums'],
-    },
-    alarmDays: { fontFamily: FontFamily.bodyBold, fontSize: FontSize.md, color: Colors.yellow100 },
-    rows: { paddingVertical: Spacing.xs, paddingHorizontal: Spacing.lg },
-    row: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, minHeight: 52 },
-    rowLabel: { flex: 1, fontFamily: FontFamily.bodyBold, fontSize: FontSize.md, color: Colors.ink700 },
-    rowValue: { fontFamily: FontFamily.bodyBlack, fontSize: FontSize.md, color: Colors.ink900 },
 });

@@ -13,17 +13,18 @@ import { router, Stack, usePathname } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
-import { Platform, StyleSheet } from 'react-native';
+import { Platform, StyleSheet, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import Onboarding from '@/components/Onboarding';
+import PaywallGate from '@/components/PaywallGate';
 import { Colors as WakeyColors } from '@/constants/wakeyTheme';
 import { AlarmProvider } from '@/contexts/AlarmContext';
 import { LocaleProvider } from '@/contexts/LocaleContext';
 import { BACKUP_WINDOW_MS, processWakeChecks } from '@/utils/notifications';
-import { checkPremiumStatus, configureRevenueCat, presentPaywall } from '@/utils/revenueCat';
+import { checkPremiumStatus } from '@/utils/revenueCat';
 import { initializeAudio, playAlarmSound } from '@/utils/sounds';
 
 export {
@@ -57,29 +58,13 @@ const handleAlarmNotification = (notification: Notifications.Notification) => {
   }
 };
 
-// Kept in sync with the current route by RootLayout.
-let ringOpen = false;
-
-// Hard paywall: keep presenting it until the user has premium. RevenueCat is
-// only configured on iOS; elsewhere every call fails, which used to spin this
-// loop forever, so skip it there. Expo Go only has RevenueCat's mock mode
-// (nothing can be bought), so skip it there too or it blocks testing.
-const ensurePremium = async () => {
-  if (Platform.OS !== 'ios' || Constants.executionEnvironment === ExecutionEnvironment.StoreClient) return;
-  try {
-    await configureRevenueCat();
-    while (!(await checkPremiumStatus())) {
-      // Never cover the ring screen: a non-subscriber couldn't stop the alarm.
-      // Opening /ring closes a paywall that's already up (react-native-screens
-      // dismisses foreign modals); hold the next one until the game is done.
-      while (ringOpen) await new Promise(r => setTimeout(r, 1000));
-      // presentPaywall returns false immediately when it can't show (offline):
-      // back off instead of hammering it.
-      if (!(await presentPaywall())) await new Promise(r => setTimeout(r, 3000));
-    }
-  } catch (error) {
-    console.error('Error checking premium status:', error);
-  }
+// Hard paywall: true when the app should stay behind it. RevenueCat is only
+// configured on iOS, and Expo Go only has its mock mode (nothing can be bought),
+// so skip it there. Dev builds always show the closable mock, to test the flow.
+const needsPaywall = async (): Promise<boolean> => {
+  if (__DEV__) return true;
+  if (Platform.OS !== 'ios' || Constants.executionEnvironment === ExecutionEnvironment.StoreClient) return false;
+  return !(await checkPremiumStatus());
 };
 
 export default function RootLayout() {
@@ -100,10 +85,9 @@ export default function RootLayout() {
   // but have distinct identifiers, so dedupe per alarm within one ring window.
   const lastHandledAt = useRef<Map<string, number>>(new Map());
 
+  const [locked, setLocked] = useState(false);
+  // Never cover the ring screen: a non-subscriber couldn't stop the alarm.
   const pathname = usePathname();
-  useEffect(() => {
-    ringOpen = pathname === '/ring';
-  }, [pathname]);
 
   // Handle alarm notification with deduplication
   const handleAlarmNotificationSafe = (notification: Notifications.Notification) => {
@@ -150,10 +134,11 @@ export default function RootLayout() {
     };
 
     if (fontsLoaded) {
-      checkOnboarding().then((isComplete) => {
+      checkOnboarding().then(async (isComplete) => {
+        // Decide before the splash hides, so home never flashes before the paywall.
+        if (isComplete) setLocked(await needsPaywall().catch(() => false));
         SplashScreen.hideAsync();
         initializeAudio();
-        if (isComplete) ensurePremium();
       });
     }
   }, [fontsLoaded]);
@@ -200,11 +185,10 @@ export default function RootLayout() {
     } catch (error) {
       console.error('Error saving onboarding status:', error);
     }
+    // Personalizing → paywall: lock first so home never shows in between.
+    setLocked(await needsPaywall().catch(() => false));
     setShowOnboarding(false);
     setIsOnboardingComplete(true);
-    // Closing the onboarding paywall without buying used to let the user in
-    // until the next cold start.
-    ensurePremium();
   };
 
   if (!fontsLoaded || isOnboardingComplete === null) {
@@ -261,6 +245,11 @@ export default function RootLayout() {
               }}
             />
           </Stack>
+          {locked && pathname !== '/ring' && (
+            <View style={StyleSheet.absoluteFill}>
+              <PaywallGate onUnlocked={() => setLocked(false)} />
+            </View>
+          )}
         </AlarmProvider>
       </GestureHandlerRootView>
     </LocaleProvider>

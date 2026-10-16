@@ -1,4 +1,5 @@
-// First-launch flow: story → try the game → one alarm setting per step → create the alarm.
+// First-launch flow: build the alarm → try the game → tune it → story → notifications →
+// personalizing. The hard paywall in _layout follows.
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useEffect, useState } from 'react';
 import { BackHandler, KeyboardAvoidingView, Platform, StyleSheet, Text, View } from 'react-native';
@@ -24,14 +25,13 @@ import { DEFAULT_SOUND_ID } from '@/utils/sounds';
 import { type Alarm, generateId, saveAlarm } from '@/utils/storage';
 import { DEFAULT_MATH_LEVEL, DEFAULT_STEPS } from '@/utils/wakeCheck';
 import { ease } from './onboarding/kit';
-import { type Answers, type Draft, pageExit, STEPS, type StepId, VIEWS } from './onboarding/steps';
+import { type Answers, type Draft, pageExit, STEPS, VIEWS } from './onboarding/steps';
 
 const pad = (n: number) => String(n).padStart(2, '0');
-const REVIEW = STEPS.indexOf('review');
 
 export default function Onboarding({ onComplete }: { onComplete: () => void }) {
     const { t } = useLocale();
-    // Visited step indexes; Back pops, Continue / Skip (game only) / review rows push.
+    // Visited step indexes; Back pops, Continue / Skip (game only) push.
     const [history, setHistory] = useState([0]);
     const index = history[history.length - 1];
     const id = STEPS[index];
@@ -48,12 +48,7 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
         label: t('onboarding.defaultLabel'),
     }));
 
-    const goTo = useCallback((step: StepId) => setHistory(h => [...h, STEPS.indexOf(step)]), []);
-    // Once the review has been seen (Skip or the end), Continue on an edited setting returns to it.
-    const next = useCallback(
-        () => setHistory(h => [...h, h.includes(REVIEW) ? REVIEW : Math.min(h[h.length - 1] + 1, REVIEW)]),
-        [],
-    );
+    const next = useCallback(() => setHistory(h => [...h, Math.min(h[h.length - 1] + 1, STEPS.length - 1)]), []);
     const back = useCallback(() => setHistory(h => (h.length > 1 ? h.slice(0, -1) : h)), []);
 
     useEffect(() => {
@@ -145,7 +140,6 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
                         answers={answers}
                         setAnswers={patch => setAnswersState(a => ({ ...a, ...patch }))}
                         next={next}
-                        goTo={goTo}
                         finish={finish}
                     />
                 </Animated.View>

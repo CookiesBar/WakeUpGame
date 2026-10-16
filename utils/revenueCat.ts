@@ -6,8 +6,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants,{ ExecutionEnvironment } from 'expo-constants';
 import { Platform } from 'react-native';
-import Purchases from 'react-native-purchases';
-import RevenueCatUI, { PAYWALL_RESULT } from 'react-native-purchases-ui';
+import Purchases, { type PurchasesOffering } from 'react-native-purchases';
 
 import { posthog } from '@/utils/analytics';
 
@@ -66,38 +65,25 @@ const ready = async (): Promise<boolean> => {
 };
 
 /**
- * Present the RevenueCat paywall
- * @returns true if user purchased or restored, false otherwise
+ * Offerings for the hard paywall, shown in order. Until the one-time offer has been seen:
+ * the copy with an X ("closable"), then the offer ("winback"), then the main paywall
+ * with no X. After that, only the main one. Empty where RevenueCat isn't set up.
  */
-export async function presentPaywall(): Promise<boolean> {
+export async function paywallSequence(): Promise<PurchasesOffering[]> {
     try {
-        // The onboarding paywall runs before app start configures RevenueCat.
-        if (!(await ready())) return false;
-        // "Wakey - Paywall" offering; undefined falls back to the default offering
-        const offerings = await Purchases.getOfferings();
-        // Until the one-time offer has been shown, use the copy with an X; closing it opens
-        // the offer. Otherwise use the main paywall with no X, so closing never just reopens
-        // the same screen. The SDK adds an X unless told not to, and the hard-paywall loop
-        // in _layout re-presented the closed main paywall every 3 s.
-        const offer = offerings.all[OFFER_OFFERING_IDENTIFIER];
-        const closable = offerings.all[CLOSABLE_OFFERING_IDENTIFIER];
+        if (!(await ready())) return [];
+        const { all } = await Purchases.getOfferings();
+        const offer = all[OFFER_OFFERING_IDENTIFIER];
+        const closable = all[CLOSABLE_OFFERING_IDENTIFIER];
         const offerPending = !!offer && !!closable && !(await AsyncStorage.getItem(OFFER_SEEN_KEY));
-        let result = await RevenueCatUI.presentPaywall({
-            offering: offerPending ? closable : offerings.all[OFFERING_IDENTIFIER],
-            displayCloseButton: offerPending,
-        });
-        const sawOffer = offerPending && result === PAYWALL_RESULT.CANCELLED;
-        if (sawOffer) {
-            await AsyncStorage.setItem(OFFER_SEEN_KEY, '1');
-            result = await RevenueCatUI.presentPaywall({ offering: offer });
-        }
-        posthog.capture('paywall_closed', { result, saw_offer: sawOffer });
-        return result === PAYWALL_RESULT.PURCHASED || result === PAYWALL_RESULT.RESTORED;
+        return (offerPending ? [closable, offer, all[OFFERING_IDENTIFIER]] : [all[OFFERING_IDENTIFIER]]).filter(Boolean);
     } catch (error) {
-        console.error('Error presenting paywall:', error);
-        return false;
+        console.error('Error loading paywall offerings:', error);
+        return []; // offline: the paywall view falls back to the current offering
     }
 }
+
+export const markOfferSeen = () => AsyncStorage.setItem(OFFER_SEEN_KEY, '1').catch(() => undefined);
 
 /**
  * Check if user has premium access
