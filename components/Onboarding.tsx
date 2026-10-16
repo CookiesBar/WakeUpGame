@@ -18,6 +18,7 @@ import Mascot from '@/components/Mascot';
 import Pressable from '@/components/Pressable';
 import { BorderRadius, Colors, FontFamily, FontSize, Spacing } from '@/constants/wakeyTheme';
 import { useLocale } from '@/contexts/LocaleContext';
+import { posthog } from '@/utils/analytics';
 import { scheduleAlarmNotification } from '@/utils/notifications';
 import { DEFAULT_SOUND_ID } from '@/utils/sounds';
 import { type Alarm, generateId, saveAlarm } from '@/utils/storage';
@@ -64,6 +65,11 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
         return () => sub.remove();
     }, [history.length, back]);
 
+    // One event per screen shown; the PostHog funnel over `step` shows where people drop off.
+    useEffect(() => {
+        posthog.capture('onboarding_step_viewed', { step: id, index });
+    }, [id, index]);
+
     const [personalizing, setPersonalizing] = useState(false);
 
     // The alarm built here is saved for real, so the user lands on a working alarm.
@@ -80,6 +86,14 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
             steps: draft.steps,
             mathLevel: draft.mathLevel,
         };
+        posthog.capture('onboarding_completed', {
+            goal: answers.goal,
+            pains: answers.pains,
+            steps: draft.steps,
+            math_level: draft.mathLevel,
+            wake_check: draft.wakeCheck,
+            screens_seen: history.length,
+        });
         setPersonalizing(true);
         // Hold the personalizing screen long enough for all three lines to land.
         await Promise.all([
@@ -87,7 +101,7 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
             new Promise(r => setTimeout(r, 3600)),
         ]);
         onComplete();
-    }, [draft, onComplete, t]);
+    }, [draft, answers, history.length, onComplete, t]);
 
     const progress = useSharedValue(0);
     useEffect(() => {

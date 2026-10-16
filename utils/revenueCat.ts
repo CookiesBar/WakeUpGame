@@ -8,6 +8,8 @@ import { Platform } from 'react-native';
 import Purchases from 'react-native-purchases';
 import RevenueCatUI, { PAYWALL_RESULT } from 'react-native-purchases-ui';
 
+import { posthog } from '@/utils/analytics';
+
 // RevenueCat API Key for iOS
 const REVENUECAT_IOS_API_KEY = 'appl_scqLeeBOZfDbZLrUxqPmuoTQMHC';
 
@@ -35,6 +37,11 @@ export async function configureRevenueCat(): Promise<void> {
             if (__DEV__) await Purchases.setLogLevel(Purchases.LOG_LEVEL.DEBUG);
             await Purchases.configure({ apiKey: REVENUECAT_IOS_API_KEY });
             isConfigured = true;
+            // One id in both tools, so RevenueCat's PostHog integration lands trials and
+            // purchases on the same person as their onboarding events.
+            const appUserId = await Purchases.getAppUserID();
+            posthog.identify(appUserId);
+            await Purchases.setAttributes({ $posthogUserId: appUserId });
             console.log('RevenueCat configured successfully');
         } else {
             console.log('RevenueCat: skipped (not iOS, or running in Expo Go)');
@@ -64,6 +71,7 @@ export async function presentPaywall(): Promise<boolean> {
             offering: offerings.all[OFFERING_IDENTIFIER],
             displayCloseButton: false, // User cannot skip the paywall
         });
+        posthog.capture('paywall_closed', { result });
         return result === PAYWALL_RESULT.PURCHASED || result === PAYWALL_RESULT.RESTORED;
     } catch (error) {
         console.error('Error presenting paywall:', error);
