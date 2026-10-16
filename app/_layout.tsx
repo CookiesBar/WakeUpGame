@@ -9,7 +9,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { useFonts } from 'expo-font';
 import * as Notifications from 'expo-notifications';
-import { router, Stack } from 'expo-router';
+import { router, Stack, usePathname } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
@@ -57,6 +57,9 @@ const handleAlarmNotification = (notification: Notifications.Notification) => {
   }
 };
 
+// Kept in sync with the current route by RootLayout.
+let ringOpen = false;
+
 // Hard paywall: keep presenting it until the user has premium. RevenueCat is
 // only configured on iOS; elsewhere every call fails, which used to spin this
 // loop forever, so skip it there. Expo Go only has RevenueCat's mock mode
@@ -66,6 +69,10 @@ const ensurePremium = async () => {
   try {
     await configureRevenueCat();
     while (!(await checkPremiumStatus())) {
+      // Never cover the ring screen: a non-subscriber couldn't stop the alarm.
+      // Opening /ring closes a paywall that's already up (react-native-screens
+      // dismisses foreign modals); hold the next one until the game is done.
+      while (ringOpen) await new Promise(r => setTimeout(r, 1000));
       // presentPaywall returns false immediately when it can't show (offline):
       // back off instead of hammering it.
       if (!(await presentPaywall())) await new Promise(r => setTimeout(r, 3000));
@@ -92,6 +99,11 @@ export default function RootLayout() {
   // alarmId → when we last handled it. Backup notifications share the alarmId
   // but have distinct identifiers, so dedupe per alarm within one ring window.
   const lastHandledAt = useRef<Map<string, number>>(new Map());
+
+  const pathname = usePathname();
+  useEffect(() => {
+    ringOpen = pathname === '/ring';
+  }, [pathname]);
 
   // Handle alarm notification with deduplication
   const handleAlarmNotificationSafe = (notification: Notifications.Notification) => {

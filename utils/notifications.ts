@@ -14,6 +14,14 @@ export const BACKUP_NOTIFICATION_COUNT = 8;
 export const BACKUP_NOTIFICATION_INTERVAL_MS = 30 * 1000;
 export const BACKUP_WINDOW_MS = BACKUP_NOTIFICATION_COUNT * BACKUP_NOTIFICATION_INTERVAL_MS;
 
+// iOS keeps only the 64 soonest pending notifications and silently drops the
+// rest, so with 8+ alarms the farthest one never rang. Share them out evenly,
+// keeping one full burst free for a "Still awake?" check.
+// ponytail: room for one pending check; two at once (games < 5 min apart) can still overflow.
+const IOS_PENDING_LIMIT = 64;
+const burstSize = (enabledAlarms: number) =>
+    Math.max(1, Math.min(BACKUP_NOTIFICATION_COUNT, Math.floor((IOS_PENDING_LIMIT - BACKUP_NOTIFICATION_COUNT) / enabledAlarms)));
+
 // Android plays the *channel's* sound (not the notification's) and a channel's
 // settings are frozen once created — so one channel per bundled sound, under a
 // new id prefix so the legacy 'alarms' channel (default sound) is left behind.
@@ -140,10 +148,17 @@ export const scheduleAlarmNotification = async (alarm: Alarm): Promise<string | 
         // Thread ID for grouping notifications (iOS)
         const threadId = `alarm-${alarm.id}`;
 
+        // Bursts scheduled while fewer alarms were on are longer: trim them first,
+        // so adding this one can't push a far-off alarm past the limit.
+        const count = burstSize((await getAlarms()).filter(a => a.enabled).length);
+        for (const n of await Notifications.getAllScheduledNotificationsAsync()) {
+            if (Number(n.content.data?.notificationIndex) >= count) await Notifications.cancelScheduledNotificationAsync(n.identifier);
+        }
+
         // Schedule multiple backup notifications (grouped)
         let firstNotificationId: string | null = null;
 
-        for (let i = 0; i < BACKUP_NOTIFICATION_COUNT; i++) {
+        for (let i = 0; i < count; i++) {
             const notificationTime = new Date(trigger.getTime() + (i * BACKUP_NOTIFICATION_INTERVAL_MS));
             // Text is fixed at scheduling time; Settings re-schedules on a language change.
             const messages = strings().notifications;
@@ -180,7 +195,7 @@ export const scheduleAlarmNotification = async (alarm: Alarm): Promise<string | 
                 firstNotificationId = notificationId;
             }
 
-            console.log(`Scheduled alarm ${alarm.id} notification ${i + 1}/${BACKUP_NOTIFICATION_COUNT} for ${notificationTime.toLocaleString()}`);
+            console.log(`Scheduled alarm ${alarm.id} notification ${i + 1}/${count} for ${notificationTime.toLocaleString()}`);
         }
 
         return firstNotificationId;
