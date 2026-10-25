@@ -66,6 +66,13 @@
         {
           "motionPermission": "Wake Up Game counts your steps so you can walk to turn off your alarm."
         }
+      ],
+      [
+        "./plugins/withAlternateIcons",
+        {
+          "AppIcon-Ringing": "./assets/images/icon-ringing.png",
+          "AppIcon-Happy": "./assets/images/icon-happy.png"
+        }
       ]
     ],
     "experiments": {
