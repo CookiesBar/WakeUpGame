@@ -12,6 +12,7 @@ import WheelPicker from '@/components/WheelPicker';
 import { BorderRadius, Colors, FontFamily, FontSize, Shadow, Spacing } from '@/constants/wakeyTheme';
 import { useLocale } from '@/contexts/LocaleContext';
 import { strings } from '@/i18n';
+import { posthog } from '@/utils/analytics';
 import { makeProblem, type MathLevel } from '@/utils/math';
 import { requestNotificationPermissions } from '@/utils/notifications';
 import { bedtimes } from '@/utils/sleepCycle';
@@ -297,6 +298,18 @@ function Game({ next }: StepProps) {
                         )}
                     </Animated.View>
                 </Animated.View>
+                {/* People trying it in bed left here; let them go straight to the sum. */}
+                {phase === 'walk' && (
+                    <View style={s.skipWalk}>
+                        <TextButton
+                            label={t('onboarding.game.skipWalk')}
+                            onPress={() => {
+                                posthog.capture('onboarding_walk_skipped');
+                                setPhase('math');
+                            }}
+                        />
+                    </View>
+                )}
             </View>
         );
     }
@@ -722,6 +735,7 @@ const s = StyleSheet.create({
         overflow: 'hidden',
     },
     gameBody: { flex: 1, justifyContent: 'space-between' },
+    skipWalk: { paddingBottom: Spacing.md },
     note: { flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.xl, paddingHorizontal: Spacing.xs },
     noteText: { flex: 1, fontFamily: FontFamily.body, fontSize: FontSize.sm, lineHeight: 20, color: Colors.ink500 },
 

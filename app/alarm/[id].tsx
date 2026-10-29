@@ -105,6 +105,7 @@ export default function AlarmEditScreen() {
     const [label, setLabel] = useState('');
     const [days, setDays] = useState<boolean[]>(Array(7).fill(true)); // new alarms: every day
     const [wakeCheck, setWakeCheck] = useState(true);
+    const [gradualVolume, setGradualVolume] = useState(false);
     const [steps, setSteps] = useState<number>(DEFAULT_STEPS);
     const [mathLevel, setMathLevel] = useState<MathLevel>(DEFAULT_MATH_LEVEL);
     const [original, setOriginal] = useState<Alarm | null>(null);
@@ -138,6 +139,7 @@ export default function AlarmEditScreen() {
             setLabel(alarm.label);
             setDays(alarm.days);
             setWakeCheck(alarm.wakeCheck !== false);
+            setGradualVolume(!!alarm.gradualVolume);
             setSteps(alarm.steps ?? DEFAULT_STEPS);
             setMathLevel(alarm.mathLevel ?? DEFAULT_MATH_LEVEL);
             setOriginal(alarm);
@@ -207,6 +209,7 @@ export default function AlarmEditScreen() {
             days,
             soundUri: soundId, // Store soundId in soundUri field for compatibility
             wakeCheck,
+            gradualVolume,
             steps,
             mathLevel,
         };
@@ -437,6 +440,22 @@ export default function AlarmEditScreen() {
                             onValueChange={setWakeCheck}
                             trackColor={{ true: Colors.accent, false: Colors.surfaceAlt }}
                             accessibilityLabel={t('edit.wakeCheck')}
+                        />
+                    </View>
+
+                    <View style={styles.settingsDivider} />
+
+                    {/* Gradual volume */}
+                    <View style={styles.settingsRow}>
+                        <View style={styles.wakeCheckText}>
+                            <Text style={styles.settingsLabel}>{t('edit.gradualVolume')}</Text>
+                            <Text style={styles.settingsHint}>{t('edit.gradualVolumeHint')}</Text>
+                        </View>
+                        <Switch
+                            value={gradualVolume}
+                            onValueChange={setGradualVolume}
+                            trackColor={{ true: Colors.accent, false: Colors.surfaceAlt }}
+                            accessibilityLabel={t('edit.gradualVolume')}
                         />
                     </View>
                 </View>

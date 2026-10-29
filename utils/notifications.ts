@@ -172,6 +172,7 @@ export const scheduleAlarmNotification = async (alarm: Alarm): Promise<string | 
                     data: {
                         alarmId: alarm.id,
                         soundUri: alarm.soundUri,
+                        gradualVolume: !!alarm.gradualVolume,
                         label: alarm.label,
                         time: displayTime,
                         notificationIndex: i,

@@ -17,6 +17,7 @@ export interface Alarm {
     wakeCheck?: boolean; // "Still awake?" check; undefined = on (alarms from before 2.0.2)
     steps?: number; // walk goal; undefined = DEFAULT_STEPS
     mathLevel?: MathLevel; // undefined = DEFAULT_MATH_LEVEL
+    gradualVolume?: boolean; // in-app sound fades in over 30 s; undefined = off
 }
 
 export interface CustomSound {

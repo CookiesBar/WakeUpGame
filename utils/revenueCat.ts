@@ -83,7 +83,19 @@ export async function paywallSequence(): Promise<PurchasesOffering[]> {
     }
 }
 
-export const markOfferSeen = () => AsyncStorage.setItem(OFFER_SEEN_KEY, '1').catch(() => undefined);
+// Hard paywall: true when the app should stay behind it. RevenueCat is only
+// configured on iOS, and Expo Go only has its mock mode (nothing can be bought),
+// so skip it there. Dev builds always show the closable mock, to test the flow.
+export const needsPaywall = async (): Promise<boolean> => {
+    if (__DEV__) return true;
+    if (Platform.OS !== 'ios' || Constants.executionEnvironment === ExecutionEnvironment.StoreClient) return false;
+    return !(await checkPremiumStatus());
+};
+
+/** PostHog experiment flag: 'early' shows the paywall right after the onboarding game. */
+export const PAYWALL_POSITION_FLAG = 'onboarding-paywall-position';
+
+export const markOfferSeen =() => AsyncStorage.setItem(OFFER_SEEN_KEY, '1').catch(() => undefined);
 
 /**
  * Check if user has premium access

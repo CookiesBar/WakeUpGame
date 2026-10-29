@@ -22,6 +22,7 @@ import Pressable from '@/components/Pressable';
 import { BorderRadius, Colors, FontFamily, FontSize, Spacing } from '@/constants/wakeyTheme';
 import { useAlarms } from '@/contexts/AlarmContext';
 import { useLocale } from '@/contexts/LocaleContext';
+import { posthog } from '@/utils/analytics';
 import { makeProblem, type MathLevel } from '@/utils/math';
 import { armWakeCheck, cancelAlarmNotifications, rescheduleRepeatingAlarms } from '@/utils/notifications';
 import { recordAlarmCompletion } from '@/utils/rating';
@@ -137,22 +138,37 @@ export default function RingScreen() {
         if (alarmId) cancelAlarmNotifications(alarmId).catch(() => undefined);
     }, [alarmId]);
 
+    /** Re-arm the next occurrence, or switch a one-time alarm off. Returns the stored alarm. */
+    const settleAlarm = useCallback(async () => {
+        if (!alarmId) return undefined;
+        const stored = (await getAlarms()).find(a => a.id === alarmId);
+        if (stored?.days.some(d => d)) {
+            // The first step cancelled this one's notifications.
+            await rescheduleRepeatingAlarms([stored]).catch(() => undefined);
+        } else if (stored) {
+            // Instead of leaving it on with nothing scheduled.
+            await updateAlarm({ ...stored, enabled: false }).catch(() => undefined);
+        }
+        return stored;
+    }, [alarmId, updateAlarm]);
+
+    // Emergency exit for people already awake: a 2 s hold, so it can't be hit half-asleep.
+    // No streak, no "Still awake?" check.
+    const exitEarly = async () => {
+        stopAlarmSound();
+        posthog.capture('alarm_exited_early', { phase: PHASES[phase] });
+        engaged();
+        await settleAlarm().catch(err => console.error('Early exit failed:', err));
+        router.replace('/');
+    };
+
     useEffect(() => {
         if (!done) return;
         stopAlarmSound();
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
         (async () => {
-            if (alarmId) {
-                const stored = (await getAlarms()).find(a => a.id === alarmId);
-                if (stored?.days.some(d => d)) {
-                    // Re-arm the next occurrence (the first step cancelled this one's notifications).
-                    await rescheduleRepeatingAlarms([stored]).catch(() => undefined);
-                } else if (stored) {
-                    // One-time alarm is done: switch it off instead of leaving it on with nothing scheduled.
-                    await updateAlarm({ ...stored, enabled: false }).catch(() => undefined);
-                }
-                if (stored && stored.wakeCheck !== false) await armWakeCheck(stored);
-            }
+            const stored = await settleAlarm();
+            if (stored && stored.wakeCheck !== false) await armWakeCheck(stored);
             await recordAlarmCompletion();
             const log = await logWake(Date.now());
             setDayStreak(streak(log, new Date()));
@@ -199,6 +215,18 @@ export default function RingScreen() {
                     <MathMission level={mathLevel} onDone={next} />
                 )}
             </Animated.View>
+            {!done && (
+                <Pressable
+                    style={styles.exit}
+                    onLongPress={exitEarly}
+                    delayLongPress={2000}
+                    accessibilityRole="button"
+                    accessibilityHint={t('ring.alreadyUp')}
+                    hitSlop={8}
+                >
+                    <Text style={styles.exitText}>{t('ring.alreadyUp')}</Text>
+                </Pressable>
+            )}
         </SafeAreaView>
     );
 }
@@ -490,6 +518,8 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(255,255,255,0.18)',
     },
     devText: { fontFamily: FontFamily.bodyBold, fontSize: FontSize.sm, color: Colors.onBrand },
+    exit: { alignSelf: 'center', paddingVertical: Spacing.sm, marginTop: Spacing.sm },
+    exitText: { fontFamily: FontFamily.bodyBold, fontSize: FontSize.sm, color: Colors.blue100 },
 
     problemRow: { alignSelf: 'stretch', alignItems: 'center' },
     problem: {

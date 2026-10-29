@@ -19,7 +19,9 @@ import Mascot from '@/components/Mascot';
 import Pressable from '@/components/Pressable';
 import { BorderRadius, Colors, FontFamily, FontSize, Spacing } from '@/constants/wakeyTheme';
 import { useLocale } from '@/contexts/LocaleContext';
+import PaywallGate from '@/components/PaywallGate';
 import { posthog } from '@/utils/analytics';
+import { needsPaywall, PAYWALL_POSITION_FLAG } from '@/utils/revenueCat';
 import { scheduleAlarmNotification } from '@/utils/notifications';
 import { DEFAULT_SOUND_ID } from '@/utils/sounds';
 import { type Alarm, generateId, saveAlarm } from '@/utils/storage';
@@ -49,6 +51,17 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
     }));
 
     const next = useCallback(() => setHistory(h => [...h, Math.min(h[h.length - 1] + 1, STEPS.length - 1)]), []);
+
+    // Paywall-position experiment: everyone leaving the game reads the flag (that's the
+    // exposure); the 'early' arm meets the paywall here instead of after onboarding.
+    const [paywall, setPaywall] = useState(false);
+    const advance = useCallback(async () => {
+        if (id === 'game' && posthog.getFeatureFlag(PAYWALL_POSITION_FLAG) === 'early' && (await needsPaywall())) {
+            setPaywall(true);
+            return;
+        }
+        next();
+    }, [id, next]);
     const back = useCallback(() => setHistory(h => (h.length > 1 ? h.slice(0, -1) : h)), []);
 
     useEffect(() => {
@@ -107,6 +120,16 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
     const Step = VIEWS[id];
 
     if (personalizing) return <Personalizing />;
+    if (paywall) {
+        return (
+            <PaywallGate
+                onUnlocked={() => {
+                    setPaywall(false);
+                    next();
+                }}
+            />
+        );
+    }
 
     return (
         <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -125,7 +148,7 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
                 </View>
                 <View style={[styles.side, styles.right]}>
                     {id === 'game' && (
-                        <Pressable onPress={next} accessibilityRole="button" hitSlop={8}>
+                        <Pressable onPress={advance} accessibilityRole="button" hitSlop={8}>
                             <Text style={styles.skip}>{t('onboarding.skip')}</Text>
                         </Pressable>
                     )}
@@ -139,7 +162,7 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
                         set={patch => setDraft(d => ({ ...d, ...patch }))}
                         answers={answers}
                         setAnswers={patch => setAnswersState(a => ({ ...a, ...patch }))}
-                        next={next}
+                        next={advance}
                         finish={finish}
                     />
                 </Animated.View>

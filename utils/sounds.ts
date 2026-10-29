@@ -63,6 +63,16 @@ export const takePickedSound = (): string | null => {
 let currentPlayer: AudioPlayer | null = null;
 let previewTimer: ReturnType<typeof setTimeout> | null = null;
 
+/** Gradual volume: the alarm climbs from FADE_START to full over FADE_MS. */
+const FADE_MS = 30_000;
+const FADE_START = 0.15;
+let fadeTimer: ReturnType<typeof setInterval> | null = null;
+let fade = 1; // ceiling while fading in
+let wanted = 1; // what the ring screen asked for
+const apply = () => {
+    if (currentPlayer) currentPlayer.volume = wanted * fade;
+};
+
 // Play even in silent mode and keep playing in the background
 export const initializeAudio = async (): Promise<void> => {
     try {
@@ -84,9 +94,18 @@ const play = (soundId: string | null | undefined, loop: boolean): void => {
 };
 
 // Play alarm sound on loop (bundled sound ID or custom sound URI)
-export const playAlarmSound = async (soundId?: string | null): Promise<void> => {
+export const playAlarmSound = async (soundId?: string | null, gradual = false): Promise<void> => {
     try {
         play(soundId, true);
+        if (!gradual) return;
+        const startedAt = Date.now();
+        fade = FADE_START;
+        apply();
+        fadeTimer = setInterval(() => {
+            fade = Math.min(1, FADE_START + (1 - FADE_START) * ((Date.now() - startedAt) / FADE_MS));
+            apply();
+            if (fade >= 1 && fadeTimer) clearInterval(fadeTimer);
+        }, 500);
     } catch (error) {
         console.error('Error playing alarm sound:', error);
     }
@@ -95,6 +114,10 @@ export const playAlarmSound = async (soundId?: string | null): Promise<void> => 
 export const stopAlarmSound = async (): Promise<void> => {
     if (previewTimer) clearTimeout(previewTimer);
     previewTimer = null;
+    if (fadeTimer) clearInterval(fadeTimer);
+    fadeTimer = null;
+    fade = 1;
+    wanted = 1;
     if (!currentPlayer) return;
     try {
         currentPlayer.pause();
@@ -107,7 +130,8 @@ export const stopAlarmSound = async (): Promise<void> => {
 
 // 0–1. The ring screen fades the alarm as the user makes progress.
 export const setAlarmVolume = (volume: number): void => {
-    if (currentPlayer) currentPlayer.volume = volume;
+    wanted = volume;
+    apply();
 };
 
 // Preview a sound for 3 seconds

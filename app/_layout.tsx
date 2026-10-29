@@ -6,14 +6,13 @@ import {
   PlusJakartaSans_800ExtraBold,
 } from '@expo-google-fonts/plus-jakarta-sans';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { useFonts } from 'expo-font';
 import * as Notifications from 'expo-notifications';
 import { router, Stack, usePathname } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
-import { Platform, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -24,7 +23,7 @@ import { Colors as WakeyColors } from '@/constants/wakeyTheme';
 import { AlarmProvider } from '@/contexts/AlarmContext';
 import { LocaleProvider } from '@/contexts/LocaleContext';
 import { BACKUP_WINDOW_MS, processWakeChecks } from '@/utils/notifications';
-import { checkPremiumStatus } from '@/utils/revenueCat';
+import { needsPaywall } from '@/utils/revenueCat';
 import { initializeAudio, playAlarmSound } from '@/utils/sounds';
 
 export {
@@ -45,7 +44,7 @@ const handleAlarmNotification = (notification: Notifications.Notification) => {
   const data = notification.request.content.data;
   if (data?.alarmId) {
     // Play alarm sound
-    playAlarmSound(data.soundUri as string | undefined);
+    playAlarmSound(data.soundUri as string | undefined, data.gradualVolume === true);
 
     // Navigate to the full-screen ring + wake-up game
     router.push({
@@ -56,15 +55,6 @@ const handleAlarmNotification = (notification: Notifications.Notification) => {
       },
     });
   }
-};
-
-// Hard paywall: true when the app should stay behind it. RevenueCat is only
-// configured on iOS, and Expo Go only has its mock mode (nothing can be bought),
-// so skip it there. Dev builds always show the closable mock, to test the flow.
-const needsPaywall = async (): Promise<boolean> => {
-  if (__DEV__) return true;
-  if (Platform.OS !== 'ios' || Constants.executionEnvironment === ExecutionEnvironment.StoreClient) return false;
-  return !(await checkPremiumStatus());
 };
 
 export default function RootLayout() {
