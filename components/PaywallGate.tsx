@@ -27,8 +27,19 @@ function RealPaywall({ onUnlocked }: { onUnlocked: () => void }) {
     }, []);
 
     const offering = sequence?.[index];
+    // One view per paywall copy shown (closable, then winback), so the funnel can split them.
+    useEffect(() => {
+        if (sequence) posthog.capture('paywall_viewed', { offering: offering?.identifier ?? null });
+    }, [sequence, offering]);
+    const purchased = () => {
+        posthog.capture('purchase_completed', { offering: offering?.identifier ?? null });
+        onUnlocked();
+    };
     const unlockIfPremium = async () => {
-        if (await checkPremiumStatus()) onUnlocked();
+        if (await checkPremiumStatus()) {
+            posthog.capture('purchase_restored', { offering: offering?.identifier ?? null });
+            onUnlocked();
+        }
     };
     // Only the closable copy and the offer have a close button; each leads one step on.
     const dismiss = () => {
@@ -45,7 +56,7 @@ function RealPaywall({ onUnlocked }: { onUnlocked: () => void }) {
             key={offering?.identifier ?? 'current'}
             style={styles.fill}
             options={{ offering }}
-            onPurchaseCompleted={onUnlocked}
+            onPurchaseCompleted={purchased}
             onRestoreCompleted={unlockIfPremium}
             onDismiss={dismiss}
         />
