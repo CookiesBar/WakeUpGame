@@ -72,9 +72,12 @@ export default function RootLayout() {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const notificationListener = useRef<Notifications.EventSubscription>(null);
   const responseListener = useRef<Notifications.EventSubscription>(null);
-  // alarmId → when we last handled it. Backup notifications share the alarmId
-  // but have distinct identifiers, so dedupe per alarm within one ring window.
+  // ring → when we last handled it. A ring's backup notifications share alarmId and
+  // time, so dedupe on both: re-timing the alarm (or its next ring) starts fresh.
   const lastHandledAt = useRef<Map<string, number>>(new Map());
+  // A tap that launches the app arrives before the Stack is mounted: hold it until then.
+  const navReady = useRef(false);
+  const pendingAlarm = useRef<Notifications.Notification | null>(null);
 
   const [locked, setLocked] = useState(false);
   // Never cover the ring screen: a non-subscriber couldn't stop the alarm.
@@ -90,17 +93,19 @@ export default function RootLayout() {
     const alarmId = notification.request.content.data?.alarmId as string | undefined;
     if (!alarmId) return;
 
+    const ring = `${alarmId}@${notification.request.content.data?.time ?? ''}`;
     const now = Date.now();
-    const last = lastHandledAt.current.get(alarmId);
+    const last = lastHandledAt.current.get(ring);
     if (last !== undefined && now - last < BACKUP_WINDOW_MS) {
       console.log('Alarm already being handled, skipping:', alarmId);
       return;
     }
 
-    lastHandledAt.current.set(alarmId, now);
+    lastHandledAt.current.set(ring, now);
     console.log('Handling notification for alarm:', alarmId);
 
-    handleAlarmNotification(notification);
+    if (navReady.current) handleAlarmNotification(notification);
+    else pendingAlarm.current = notification;
   };
 
   useEffect(() => {
@@ -152,7 +157,10 @@ export default function RootLayout() {
     // The last response survives app restarts, so without the age check every
     // cold start re-opened the ring screen for an alarm dismissed long ago.
     Notifications.getLastNotificationResponseAsync().then(response => {
-      if (response && Date.now() - response.notification.date < BACKUP_WINDOW_MS) {
+      // iOS reports `date` in seconds, Android in ms.
+      const date = response?.notification.date ?? 0;
+      const deliveredAt = date < 1e12 ? date * 1000 : date;
+      if (response && Date.now() - deliveredAt < BACKUP_WINDOW_MS) {
         console.log('App opened from notification:', response);
         handleAlarmNotificationSafe(response.notification);
       }
@@ -168,6 +176,16 @@ export default function RootLayout() {
       }
     };
   }, []);
+
+  // The Stack below renders once fonts and onboarding are settled: run a held tap then.
+  const stackMounted = !!fontsLoaded && isOnboardingComplete === true && !showOnboarding;
+  useEffect(() => {
+    navReady.current = stackMounted;
+    if (stackMounted && pendingAlarm.current) {
+      handleAlarmNotification(pendingAlarm.current);
+      pendingAlarm.current = null;
+    }
+  }, [stackMounted]);
 
   const handleOnboardingComplete = async () => {
     try {

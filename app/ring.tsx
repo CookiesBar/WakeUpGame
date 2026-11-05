@@ -159,7 +159,7 @@ export default function RingScreen() {
         posthog.capture('alarm_exited_early', { phase: PHASES[phase] });
         engaged();
         await settleAlarm().catch(err => console.error('Early exit failed:', err));
-        router.replace('/');
+        router.dismissTo('/');
     };
 
     useEffect(() => {
@@ -177,7 +177,7 @@ export default function RingScreen() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [done]);
 
-    const leave = () => router.replace('/');
+    const leave = () => router.dismissTo('/');
 
     return (
         <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
