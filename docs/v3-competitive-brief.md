@@ -289,6 +289,35 @@ Lazy Leo already has the mascot, motion and streak systems v3 needs. Port them; 
 
 ---
 
+## 12. Keyword gap pass (Applyra, US, 2026-11-05)
+
+Bar: popularity >40, difficulty <60, a paying app in the top 10. Phrases already checked on 2026-10-30 (loud alarm clock, wake up alarm, math alarm, loudest alarm clock…) aren't repeated here.
+
+| Keyword | Pop / Diff | Verdict |
+|---|---|---|
+| **wake up call** | 63 / 22 | **Pass, best find.** Top 10 mixes a coffee shop and wake-up-call services with Alarmy (#4) and two 4.7★ alarm apps. Wakey already has "wake" and "up" in the keyword field, so adding "call" costs one word. It also fits v3.1 partner wake-ups. |
+| **loud alarm** | 72 / 52 | **Pass.** Alarmy #3. It's in Wakey's title, yet Wakey isn't in the top 100 (see ratings below). |
+| sunrise alarm | 48 / 47 | Passes the numbers, wrong intent: people want a wake-up light, not a sunrise collection. Leaders are rated 1–3.5★. Skip for now. |
+| wake up | 69 / 61 | Just over the difficulty bar. Covered anyway by "wake" + "up". |
+| alarmy | 72 / 44 | Competitor brand. Apple rejects other apps' names in metadata (guideline 2.3.7). Don't use. |
+| alarm | 86 / 82 | Too hard. |
+| smart alarm | 25 / 64 | Fails both; sleep-tracker intent. |
+| cute alarm clock | 25 / 37 | Too small. Note: a separate "Wakey - Cute Alarm Clock" (com.xo.pixels.wakey) ranks #2, so mascot-led "cute" positioning has a same-name rival. |
+| wake up early, alarm puzzle | 25 / 37, 25 / 36 | Too small. |
+| alarm pet, alarm silent mode | 8 / 22, 8 / 12 | Dead. Nobody searches for "pet alarm" or for the AlarmKit benefit, so those sell in screenshots, not keywords. |
+
+**The bigger gap may be ratings, not keywords.** Applyra lists Wakey with no US rating (in the "alarm clock for heavy sleepers" top 20, at #12), while the leaders have thousands. That would explain missing the top 100 for "loud alarm" even with the phrase in the title. Wakey already asks for a rating (`utils/rating.ts`: after every odd-numbered finished alarm, shown on the home screen), but iOS shows that dialog at most 3 times a year, so the first asks may be spent on users who haven't had a good morning yet. v3: ask on the "+1" streak moment instead (days 3, 7, 14), and check the real US rating count in App Store Connect first.
+
+**Actions for the v3 listing:**
+1. Add **call** to the en-US keyword field (drop a weak word such as "deep" or "early").
+2. Keep "loud alarm" in the title; don't move to a "wake-up pal" title, since pal/pet/cute have no search volume.
+3. Put AlarmKit ("rings on Silent") and Wakey the pal in screenshots and the subtitle, not the keyword field.
+4. Move the rating ask to Streak v2's "+1" moment.
+
+Now tracked on app 360682: loud alarm, wake up call, sunrise alarm, wake up (all outside the top 100 on day one).
+
+---
+
 ## Sources
 
 - Applyra competitor tracking (Wakey US app 360682): Alarmy, SnoozeProof, SpinMe listings, ratings and visibility
