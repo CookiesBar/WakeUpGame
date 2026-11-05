@@ -2,7 +2,7 @@
   "expo": {
     "name": "Wake Up Game",
     "slug": "wake-up-game",
-    "version": "2.0.4",
+    "version": "3.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "wakeupgame",
@@ -17,7 +17,13 @@
           "remote-notification"
         ],
         "ITSAppUsesNonExemptEncryption": false,
-        "CFBundleLocalizations": ["en", "es", "sv", "de"]
+        "CFBundleLocalizations": [
+          "en",
+          "es",
+          "sv",
+          "de"
+        ],
+        "NSAlarmKitUsageDescription": "Wakey uses alarms so your wake-up rings even in Silent mode or a Focus."
       }
     },
     "android": {
@@ -73,7 +79,10 @@
           "AppIcon-Ringing": "./assets/images/icon-ringing.png",
           "AppIcon-Happy": "./assets/images/icon-happy.png"
         }
-      ]
+      ],
+      "expo-font",
+      "expo-status-bar",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true

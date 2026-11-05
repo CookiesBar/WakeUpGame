@@ -1,7 +1,10 @@
 // Notification utilities for alarm scheduling
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import { strings, t } from '../i18n';
+import { alarmKit } from '../modules/wakey-alarm';
+import { alarmKitId } from './alarmKitId';
 import { BUNDLED_SOUNDS, DEFAULT_SOUND_ID } from './sounds';
 import { Alarm, getAlarms, getWakeChecks, saveAlarm, saveWakeChecks } from './storage';
 import { harder, WAKE_CHECK_DELAY_MS, wakeCheckOutcome } from './wakeCheck';
@@ -25,8 +28,50 @@ const burstSize = (enabledAlarms: number) =>
 // Android plays the *channel's* sound (not the notification's) and a channel's
 // settings are frozen once created — so one channel per bundled sound, under a
 // new id prefix so the legacy 'alarms' channel (default sound) is left behind.
+// Expo Go has no bundled notification sounds (or AlarmKit): use the system sound there.
+const IN_EXPO_GO = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
+const notificationSound = (file: string) => (IN_EXPO_GO ? 'default' : file);
+
 const ANDROID_CHANNEL_PREFIX = 'alarms-v2-';
 const androidChannelId = (soundId: string) => `${ANDROID_CHANNEL_PREFIX}${soundId}`;
+
+// ---------- AlarmKit (iOS 26+) ----------
+// AlarmKit rings through Silent and Focus, but its Stop button can't be hidden.
+// So each alarm is a short chain: Stop silences one link, the next rings a minute
+// later, until the wake-up game's first step cancels the rest. Stopping the last
+// link re-arms it natively a minute later (capped), so tapping Stop never ends it.
+const ALARMKIT_CHAIN = 4;
+const ALARMKIT_CHAIN_INTERVAL_MS = 60 * 1000;
+
+const cancelAlarmKitChain = (key: string): void => {
+    if (!alarmKit) return;
+    for (let i = 0; i < ALARMKIT_CHAIN; i++) alarmKit.cancel(alarmKitId(key, i));
+};
+
+/** True if AlarmKit will make the sound; false means the notifications must. */
+const armAlarmKitChain = async (key: string, firesAt: number, title: string, soundFile: string): Promise<boolean> => {
+    if (!alarmKit || alarmKit.authorizationState() !== 'authorized') return false;
+    try {
+        for (let i = 0; i < ALARMKIT_CHAIN; i++) {
+            const last = i === ALARMKIT_CHAIN - 1;
+            await alarmKit.schedule(alarmKitId(key, i), firesAt + i * ALARMKIT_CHAIN_INTERVAL_MS, title, t('alarmKit.stop'), soundFile, last);
+        }
+        return true;
+    } catch (error) {
+        console.error('AlarmKit scheduling failed, using notification sounds:', error);
+        cancelAlarmKitChain(key);
+        return false;
+    }
+};
+
+/** The in-app ring screen is taking over: silence the system alarm that's ringing now. */
+export const stopAlarmKitAlert = (): void => {
+    try {
+        alarmKit?.stopAlerting();
+    } catch (error) {
+        console.error('Error stopping AlarmKit alert:', error);
+    }
+};
 
 const getBundledSound = (soundId?: string | null) =>
     BUNDLED_SOUNDS.find(s => s.id === soundId) ??
@@ -88,6 +133,8 @@ export const requestNotificationPermissions = async (): Promise<boolean> => {
             return false;
         }
 
+        // Notifications stay on even with AlarmKit: they're how a tap opens the wake-up game.
+        await alarmKit?.requestAuthorization().catch(error => console.error('AlarmKit authorization failed:', error));
         return true;
     } catch (error) {
         console.error('Error requesting notification permissions:', error);
@@ -148,6 +195,9 @@ export const scheduleAlarmNotification = async (alarm: Alarm): Promise<string | 
         // Thread ID for grouping notifications (iOS)
         const threadId = `alarm-${alarm.id}`;
 
+        // With AlarmKit ringing, the notifications go silent and only open the game.
+        const viaAlarmKit = await armAlarmKitChain(alarm.id, trigger.getTime(), alarm.label || t('ring.defaultLabel'), soundName);
+
         // Bursts scheduled while fewer alarms were on are longer: trim them first,
         // so adding this one can't push a far-off alarm past the limit.
         const count = burstSize((await getAlarms()).filter(a => a.enabled).length);
@@ -177,7 +227,7 @@ export const scheduleAlarmNotification = async (alarm: Alarm): Promise<string | 
                         time: displayTime,
                         notificationIndex: i,
                     },
-                    sound: soundName, // Each notification plays the alarm sound
+                    sound: viaAlarmKit ? false : notificationSound(soundName), // Each notification plays the alarm sound
                     priority: Notifications.AndroidNotificationPriority.MAX,
                     // iOS specific - makes notification more prominent and groups them
                     interruptionLevel: 'timeSensitive',
@@ -196,7 +246,7 @@ export const scheduleAlarmNotification = async (alarm: Alarm): Promise<string | 
                 firstNotificationId = notificationId;
             }
 
-            console.log(`Scheduled alarm ${alarm.id} notification ${i + 1}/${count} for ${notificationTime.toLocaleString()}`);
+            console.log(`Scheduled alarm ${alarm.id} notification ${i + 1}/${count} for ${notificationTime.toString()}`);
         }
 
         return firstNotificationId;
@@ -242,6 +292,7 @@ const isAlarmRinging = (alarm: Alarm): boolean => {
 // Cancel all notifications for an alarm (including backup notifications)
 export const cancelAlarmNotifications = async (alarmId: string): Promise<void> => {
     try {
+        cancelAlarmKitChain(alarmId);
         const notifications = await Notifications.getAllScheduledNotificationsAsync();
         const toCancel = notifications.filter(
             n => n.content.data?.alarmId === alarmId
@@ -281,6 +332,7 @@ const serial = <T,>(fn: () => Promise<T>): Promise<T> => {
 };
 
 const cancelWakeCheckNotifications = async (alarmId: string): Promise<void> => {
+    cancelAlarmKitChain(`check-${alarmId}`);
     const scheduled = await Notifications.getAllScheduledNotificationsAsync();
     for (const n of scheduled) {
         if (n.content.data?.checkAlarmId === alarmId) await Notifications.cancelScheduledNotificationAsync(n.identifier);
@@ -298,13 +350,14 @@ export const armWakeCheck = (alarm: Alarm, delayMs = WAKE_CHECK_DELAY_MS): Promi
         await ensureAndroidAlarmChannels();
         const sound = getBundledSound(alarm.soundUri);
         const firesAt = Date.now() + delayMs;
+        const viaAlarmKit = await armAlarmKitChain(`check-${alarm.id}`, firesAt, t('wakeCheck.title'), sound.notificationSound);
         for (let i = 0; i < BACKUP_NOTIFICATION_COUNT; i++) {
             await Notifications.scheduleNotificationAsync({
                 content: {
                     title: t('wakeCheck.title'),
                     body: t('wakeCheck.body'),
                     data: { checkAlarmId: alarm.id },
-                    sound: sound.notificationSound,
+                    sound: viaAlarmKit ? false : notificationSound(sound.notificationSound),
                     priority: Notifications.AndroidNotificationPriority.MAX,
                     interruptionLevel: 'timeSensitive',
                     ...(i > 0 && { threadId: `check-${alarm.id}` }),

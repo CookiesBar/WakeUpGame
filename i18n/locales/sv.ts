@@ -218,6 +218,9 @@ const sv: typeof en = {
         title: "Är du vaken?",
         body: "Öppna Wakey för att visa att du är uppe",
     },
+    alarmKit: {
+        stop: 'Stoppa',
+    },
     settings: {
         title: 'Inställningar',
         language: 'Språk',

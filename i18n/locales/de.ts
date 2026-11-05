@@ -218,6 +218,9 @@ const de: typeof en = {
         title: "Noch wach?",
         body: "Öffne Wakey, um zu zeigen, dass du auf bist",
     },
+    alarmKit: {
+        stop: 'Stopp',
+    },
     settings: {
         title: 'Einstellungen',
         language: 'Sprache',

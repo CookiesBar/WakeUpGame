@@ -6,7 +6,7 @@ on: workflow_dispatch
 
 jobs:
   build:
-    runs-on: macos-15
+    runs-on: macos-26 # Xcode 26 SDK: AlarmKit only compiles in with it
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4

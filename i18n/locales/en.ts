@@ -216,6 +216,9 @@ const en = {
         title: "Still awake?",
         body: "Open Wakey to show you're up",
     },
+    alarmKit: {
+        stop: 'Stop',
+    },
     settings: {
         title: 'Settings',
         language: 'Language',

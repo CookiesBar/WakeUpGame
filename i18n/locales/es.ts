@@ -218,6 +218,9 @@ const es: typeof en = {
         title: "¿Sigues despierto?",
         body: "Abre Wakey para demostrar que estás en pie",
     },
+    alarmKit: {
+        stop: 'Detener',
+    },
     settings: {
         title: 'Ajustes',
         language: 'Idioma',

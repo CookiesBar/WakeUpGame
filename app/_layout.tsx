@@ -22,7 +22,7 @@ import PaywallGate from '@/components/PaywallGate';
 import { Colors as WakeyColors } from '@/constants/wakeyTheme';
 import { AlarmProvider } from '@/contexts/AlarmContext';
 import { LocaleProvider } from '@/contexts/LocaleContext';
-import { BACKUP_WINDOW_MS, processWakeChecks } from '@/utils/notifications';
+import { BACKUP_WINDOW_MS, processWakeChecks, stopAlarmKitAlert } from '@/utils/notifications';
 import { needsPaywall } from '@/utils/revenueCat';
 import { initializeAudio, playAlarmSound } from '@/utils/sounds';
 
@@ -43,7 +43,8 @@ SplashScreen.preventAutoHideAsync();
 const handleAlarmNotification = (notification: Notifications.Notification) => {
   const data = notification.request.content.data;
   if (data?.alarmId) {
-    // Play alarm sound
+    // Play alarm sound; the in-app sound replaces a ringing AlarmKit alert
+    stopAlarmKitAlert();
     playAlarmSound(data.soundUri as string | undefined, data.gradualVolume === true);
 
     // Navigate to the full-screen ring + wake-up game
