@@ -127,15 +127,18 @@ export const saveWakeChecks = (checks: Record<string, number>): Promise<void> =>
 const WAKE_LOG_KEY = '@wake_up_game_wake_log';
 const WAKE_LOG_MAX = 400;
 
-export const logWake = async (at: number): Promise<WakeLog> => {
-    let log: WakeLog = [];
+export const getWakeLog = async (): Promise<WakeLog> => {
     try {
         const parsed = JSON.parse((await AsyncStorage.getItem(WAKE_LOG_KEY)) ?? '[]');
-        if (Array.isArray(parsed)) log = parsed;
+        return Array.isArray(parsed) ? parsed : [];
     } catch (error) {
         console.error('Error reading wake log:', error);
+        return [];
     }
-    log = [...log, at].slice(-WAKE_LOG_MAX);
+};
+
+export const logWake = async (at: number): Promise<WakeLog> => {
+    const log = [...(await getWakeLog()), at].slice(-WAKE_LOG_MAX);
     await AsyncStorage.setItem(WAKE_LOG_KEY, JSON.stringify(log));
     return log;
 };
