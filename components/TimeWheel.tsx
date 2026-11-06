@@ -8,6 +8,7 @@ import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 
 
 import WheelPicker from '@/components/WheelPicker';
 import { ARRIVE, W, WFont } from '@/constants/white';
+import { t } from '@/i18n';
 
 const ROW = 36;
 const HEIGHT = 180; // = ROW × 5 visible rows, so the centre row sits at HEIGHT / 2
@@ -45,7 +46,9 @@ export interface TimeWheelProps {
 export default function TimeWheel({ minutes, onChange, twelveHour, accessibilityLabel, ready = true }: TimeWheelProps) {
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
-  const common = { itemHeight: ROW, style: styles.wheel, textStyle: styles.text, colors: COLORS, accessibilityLabel };
+  const common = { itemHeight: ROW, style: styles.wheel, textStyle: styles.text, colors: COLORS };
+  // Each drum says which part of the time it sets.
+  const label = (part: string) => accessibilityLabel + ', ' + part;
   // The drums fade in over the still copy, and the copy goes only when the fade has really finished on screen
   // (not after a guessed delay: building the drums can take longer than any guess on a slow or debug build).
   const [settled, setSettled] = useState(false);
@@ -81,11 +84,12 @@ export default function TimeWheel({ minutes, onChange, twelveHour, accessibility
       )}
       {ready && (
         <Animated.View style={[styles.wheels, styles.fill, fade]}>
-          <WheelPicker {...common} data={twelveHour ? H12 : H24} cycle={24} selectedIndex={h} onIndexChange={i => onChange(i * 60 + m)} />
-          <WheelPicker {...common} data={MINS} selectedIndex={m} onIndexChange={i => onChange(h * 60 + i)} />
+          <WheelPicker {...common} accessibilityLabel={label(t('edit.wheelHour'))} data={twelveHour ? H12 : H24} cycle={24} selectedIndex={h} onIndexChange={i => onChange(i * 60 + m)} />
+          <WheelPicker {...common} accessibilityLabel={label(t('edit.wheelMinute'))} data={MINS} selectedIndex={m} onIndexChange={i => onChange(h * 60 + i)} />
           {twelveHour && (
             <WheelPicker
               {...common}
+              accessibilityLabel={label(t('edit.wheelPeriod'))}
               data={AP}
               infinite={false}
               selectedIndex={h < 12 ? 0 : 1}

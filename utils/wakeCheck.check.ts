@@ -1,6 +1,6 @@
 // Run: node utils/wakeCheck.check.ts
 import assert from 'node:assert';
-import { harder, RING_AGAIN_MS, ringingAgain, wakeCheckOutcome } from './wakeCheck.ts';
+import { harder, RING_AGAIN_MS, ringAgainEnds, wakeCheckOutcome } from './wakeCheck.ts';
 
 const at = 1_000_000, win = 240_000;
 assert.equal(wakeCheckOutcome(at, at - 1, win), 'pending');
@@ -8,10 +8,9 @@ assert.equal(wakeCheckOutcome(at, at, win), 'awake');
 assert.equal(wakeCheckOutcome(at, at + win - 1, win), 'awake');
 assert.equal(wakeCheckOutcome(at, at + win, win), 'missed');
 
-// Missed: open the app while it rings again → the game; long after → just cleared
-assert.equal(ringingAgain(at, at + win, win), true);
-assert.equal(ringingAgain(at, at + win + RING_AGAIN_MS - 1, win), true);
-assert.equal(ringingAgain(at, at + win + RING_AGAIN_MS, win), false);
+// Ring-again lasts the AlarmKit re-arm span, or one notification burst
+assert.equal(ringAgainEnds(at, win, true), at + RING_AGAIN_MS);
+assert.equal(ringAgainEnds(at, win, false), at + win);
 
 // Defaults (math 1, 50 steps) → math 2 → 100 steps → maxed
 assert.deepEqual(harder({}), { mathLevel: 2 });

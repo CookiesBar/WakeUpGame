@@ -1,0 +1,813 @@
+{
+  "name": "wakey-walk-cycle",
+  "version": 4,
+  "basedOn": "pic5.svg (Good morning): lean, 7:00, the stride. Walks to the left, nothing in the hands, both arms swing, live face.",
+  "generatedBy": "tools/walk.mjs",
+  "units": "face-rig units: same space as face-rig.svg, head centre and hub at (150, 184)",
+  "viewBox": [
+    -56,
+    -6,
+    440,
+    414
+  ],
+  "periodMs": 1000,
+  "direction": "left (-x)",
+  "engine": "Read every walk channel with flow() from utils/motion.ts, made periodic: evaluate at t mod period with the keys copied one period before and after.",
+  "restFrameMs": 625,
+  "drawOrder": [
+    "walk-shadow",
+    "walk-body > walk-arm-left (far), walk-leg-left, walk-leg-right, walk-bell-left, walk-bell-right, walk-body-back, walk-ring … walk-cheeks, the face (walk-eye-left, walk-eye-right, walk-mouth), walk-hand-short, walk-hand-long, walk-hub, walk-arm-right (near, in front)"
+  ],
+  "parts": {
+    "walk-body": {
+      "pivot": [
+        150,
+        184
+      ],
+      "moves": "translate(surge, -lift), then rotate(-6° + rock) around the pivot (negative = leaning left); carries everything except the shadow"
+    },
+    "walk-thigh-left": {
+      "pivot": [
+        89.72,
+        279.22
+      ],
+      "length": 50,
+      "width": 24,
+      "colour": "#54A8FF",
+      "drawn": "straight down from the pivot"
+    },
+    "walk-shin-left": {
+      "parent": "walk-thigh-left",
+      "pivot": [
+        89.72,
+        329.22
+      ],
+      "length": 50
+    },
+    "walk-foot-left": {
+      "parent": "walk-shin-left",
+      "pivot": [
+        89.72,
+        379.22
+      ],
+      "length": 22,
+      "drawn": "horizontal, pointing left"
+    },
+    "walk-thigh-right": {
+      "pivot": [
+        209.06,
+        291.76
+      ],
+      "length": 50,
+      "width": 24,
+      "colour": "#54A8FF",
+      "drawn": "straight down from the pivot"
+    },
+    "walk-shin-right": {
+      "parent": "walk-thigh-right",
+      "pivot": [
+        209.06,
+        341.76
+      ],
+      "length": 50
+    },
+    "walk-foot-right": {
+      "parent": "walk-shin-right",
+      "pivot": [
+        209.06,
+        391.76
+      ],
+      "length": 22,
+      "drawn": "horizontal, pointing left"
+    },
+    "walk-upper-arm-left": {
+      "pivot": [
+        38,
+        176
+      ],
+      "length": 54,
+      "width": 20,
+      "colour": "#BCE5FE",
+      "drawn": "straight down; far arm, behind the body"
+    },
+    "walk-forearm-left": {
+      "parent": "walk-upper-arm-left",
+      "pivot": [
+        38,
+        230
+      ],
+      "length": 52
+    },
+    "walk-upper-arm-right": {
+      "pivot": [
+        283,
+        170
+      ],
+      "length": 54,
+      "width": 20,
+      "colour": "#BCE5FE",
+      "drawn": "straight down; near arm, in front of the body"
+    },
+    "walk-forearm-right": {
+      "parent": "walk-upper-arm-right",
+      "pivot": [
+        283,
+        224
+      ],
+      "length": 52
+    },
+    "walk-bell-left": {
+      "pivot": [
+        79.44,
+        84.4
+      ]
+    },
+    "walk-bell-right": {
+      "pivot": [
+        248.59,
+        90.31
+      ]
+    },
+    "walk-shadow": {
+      "centre": [
+        160,
+        392
+      ],
+      "radii": [
+        126,
+        8
+      ],
+      "colour": "#020628",
+      "opacity": 0.08
+    }
+  },
+  "keys": {
+    "lift": [
+      [
+        60,
+        -2.5
+      ],
+      [
+        290,
+        3
+      ],
+      [
+        560,
+        -2.2
+      ],
+      [
+        790,
+        2.6
+      ]
+    ],
+    "surge": [
+      [
+        60,
+        -1.2
+      ],
+      [
+        290,
+        1.2
+      ],
+      [
+        560,
+        -1.2
+      ],
+      [
+        790,
+        1.2
+      ]
+    ],
+    "rock": [
+      [
+        60,
+        -0.6
+      ],
+      [
+        290,
+        0.5
+      ],
+      [
+        560,
+        -0.6
+      ],
+      [
+        790,
+        0.5
+      ]
+    ],
+    "toe": [
+      [
+        0,
+        -14
+      ],
+      [
+        90,
+        0
+      ],
+      [
+        400,
+        0
+      ],
+      [
+        580,
+        40
+      ],
+      [
+        630,
+        100
+      ],
+      [
+        810,
+        10
+      ],
+      [
+        920,
+        -8
+      ]
+    ],
+    "swingX": "[[580, toeOffX], [630, toeOffX + 19], [930, contactX - 2], [1000, contactX]] (walking left)",
+    "swingY": "[[580, toeOffY], [630, ground - 22], [830, ground - 20], [900, ground - 6], [1000, ground]]",
+    "armSwing": {
+      "left": [
+        [
+          40,
+          -16
+        ],
+        [
+          540,
+          28
+        ]
+      ],
+      "right": [
+        [
+          40,
+          16
+        ],
+        [
+          540,
+          -26
+        ]
+      ]
+    },
+    "elbow": {
+      "left": [
+        [
+          40,
+          6
+        ],
+        [
+          540,
+          36
+        ]
+      ],
+      "right": [
+        [
+          40,
+          24
+        ],
+        [
+          540,
+          4
+        ]
+      ]
+    },
+    "armOut": {
+      "left": 6,
+      "right": -8
+    },
+    "land": [
+      0,
+      500
+    ]
+  },
+  "derived": {
+    "feet": "Each foot runs on its own clock (left heel strike at 0, right at 500). Stance (0–580 ms): the flat foot slides right from hip x - 28 to hip x + 54, like a treadmill; toe angle < 0 pivots on the heel, > 0 on the toe tip. Swing (580–1000 ms): the ankle follows swingX / swingY.",
+    "legs": "Two-bone IK in body space, knees bending left (the way it walks). Thigh rotates around the hip, shin around the rest knee, foot around the rest ankle (foot rotation = -toe angle - body lean - shin angle).",
+    "arms": "Each arm hangs straight down in the world (its rotation cancels the lean). Upper arm = armSwing + armOut - lean (clockwise degrees); forearm = elbow + 0.5 * (armSwing(t - 100) - armSwing(t)). Positive = forward (left). The arms swing against the legs.",
+    "bells": "1.4 * (lean(t - 110) - lean(t)), plus one 2° dip outward after each heel strike (bell curve over 280 ms, starting 20 ms after).",
+    "shadow": "x follows half the surge; width scale = 1 - 0.03 * (left lift + right lift) / 26 - body lift / 250."
+  },
+  "face": {
+    "clockMs": 23400,
+    "separateFromWalk": true,
+    "rules": "Eyes: neutral or happy-closed (32% chance at each change). Neutral holds 1.1–2.4 s and glances to a random pupil offset (x -8..6, y -7..8, at least 4.5 away; 20% back to centre), gliding in 450 ms; a blink (close 110, hold 40, reopen 190 ms ease-out) at most every 2.6 s. Happy holds 1.3–2.2 s. Expression changes morph in 380 ms (EASE_IN_OUT, the rig's fade rule). Mouth, on its own: closed smile 1.7–3.7 s, open happy mouth (open-shout) 1.1–2.5 s, 380 ms morphs. Seeded (mulberry32, seed 7) so the file is the same every build; the app can draw fresh random numbers instead.",
+    "eyes": [
+      {
+        "t": 0,
+        "eyes": "neutral",
+        "gaze": [
+          0,
+          0
+        ],
+        "ease": "hold"
+      },
+      {
+        "t": 1115,
+        "eyes": "neutral",
+        "gaze": [
+          0,
+          0
+        ],
+        "ease": "hold"
+      },
+      {
+        "t": 1495,
+        "eyes": "happy-closed",
+        "ease": "io"
+      },
+      {
+        "t": 3674,
+        "eyes": "happy-closed",
+        "ease": "hold"
+      },
+      {
+        "t": 4054,
+        "eyes": "neutral",
+        "gaze": [
+          -0.7,
+          -0.9
+        ],
+        "ease": "io"
+      },
+      {
+        "t": 4596,
+        "eyes": "neutral",
+        "gaze": [
+          -0.7,
+          -0.9
+        ],
+        "ease": "hold"
+      },
+      {
+        "t": 4706,
+        "eyes": "blink-closed",
+        "gaze": [
+          -0.7,
+          -0.9
+        ],
+        "ease": "io"
+      },
+      {
+        "t": 4746,
+        "eyes": "blink-closed",
+        "gaze": [
+          -0.7,
+          -0.9
+        ],
+        "ease": "hold"
+      },
+      {
+        "t": 4936,
+        "eyes": "neutral",
+        "gaze": [
+          -0.7,
+          -0.9
+        ],
+        "ease": "out"
+      },
+      {
+        "t": 5761,
+        "eyes": "neutral",
+        "gaze": [
+          -0.7,
+          -0.9
+        ],
+        "ease": "hold"
+      },
+      {
+        "t": 6211,
+        "eyes": "neutral",
+        "gaze": [
+          -4.4,
+          -4.7
+        ],
+        "ease": "io"
+      },
+      {
+        "t": 8304,
+        "eyes": "neutral",
+        "gaze": [
+          -4.4,
+          -4.7
+        ],
+        "ease": "hold"
+      },
+      {
+        "t": 8754,
+        "eyes": "neutral",
+        "gaze": [
+          0,
+          0
+        ],
+        "ease": "io"
+      },
+      {
+        "t": 9311,
+        "eyes": "neutral",
+        "gaze": [
+          0,
+          0
+        ],
+        "ease": "hold"
+      },
+      {
+        "t": 9421,
+        "eyes": "blink-closed",
+        "gaze": [
+          0,
+          0
+        ],
+        "ease": "io"
+      },
+      {
+        "t": 9461,
+        "eyes": "blink-closed",
+        "gaze": [
+          0,
+          0
+        ],
+        "ease": "hold"
+      },
+      {
+        "t": 9651,
+        "eyes": "neutral",
+        "gaze": [
+          0,
+          0
+        ],
+        "ease": "out"
+      },
+      {
+        "t": 10332,
+        "eyes": "neutral",
+        "gaze": [
+          0,
+          0
+        ],
+        "ease": "hold"
+      },
+      {
+        "t": 10782,
+        "eyes": "neutral",
+        "gaze": [
+          -3.9,
+          7.7
+        ],
+        "ease": "io"
+      },
+      {
+        "t": 12204,
+        "eyes": "neutral",
+        "gaze": [
+          -3.9,
+          7.7
+        ],
+        "ease": "hold"
+      },
+      {
+        "t": 12654,
+        "eyes": "neutral",
+        "gaze": [
+          0,
+          0
+        ],
+        "ease": "io"
+      },
+      {
+        "t": 13045,
+        "eyes": "neutral",
+        "gaze": [
+          0,
+          0
+        ],
+        "ease": "hold"
+      },
+      {
+        "t": 13155,
+        "eyes": "blink-closed",
+        "gaze": [
+          0,
+          0
+        ],
+        "ease": "io"
+      },
+      {
+        "t": 13195,
+        "eyes": "blink-closed",
+        "gaze": [
+          0,
+          0
+        ],
+        "ease": "hold"
+      },
+      {
+        "t": 13385,
+        "eyes": "neutral",
+        "gaze": [
+          0,
+          0
+        ],
+        "ease": "out"
+      },
+      {
+        "t": 13941,
+        "eyes": "neutral",
+        "gaze": [
+          0,
+          0
+        ],
+        "ease": "hold"
+      },
+      {
+        "t": 14321,
+        "eyes": "happy-closed",
+        "ease": "io"
+      },
+      {
+        "t": 16114,
+        "eyes": "happy-closed",
+        "ease": "hold"
+      },
+      {
+        "t": 16494,
+        "eyes": "neutral",
+        "gaze": [
+          -7,
+          6.7
+        ],
+        "ease": "io"
+      },
+      {
+        "t": 17490,
+        "eyes": "neutral",
+        "gaze": [
+          -7,
+          6.7
+        ],
+        "ease": "hold"
+      },
+      {
+        "t": 17600,
+        "eyes": "blink-closed",
+        "gaze": [
+          -7,
+          6.7
+        ],
+        "ease": "io"
+      },
+      {
+        "t": 17640,
+        "eyes": "blink-closed",
+        "gaze": [
+          -7,
+          6.7
+        ],
+        "ease": "hold"
+      },
+      {
+        "t": 17830,
+        "eyes": "neutral",
+        "gaze": [
+          -7,
+          6.7
+        ],
+        "ease": "out"
+      },
+      {
+        "t": 18314,
+        "eyes": "neutral",
+        "gaze": [
+          -7,
+          6.7
+        ],
+        "ease": "hold"
+      },
+      {
+        "t": 18764,
+        "eyes": "neutral",
+        "gaze": [
+          0.7,
+          6.8
+        ],
+        "ease": "io"
+      },
+      {
+        "t": 20940,
+        "eyes": "neutral",
+        "gaze": [
+          0.7,
+          6.8
+        ],
+        "ease": "hold"
+      },
+      {
+        "t": 21320,
+        "eyes": "happy-closed",
+        "ease": "io"
+      },
+      {
+        "t": 23020,
+        "eyes": "happy-closed",
+        "ease": "hold"
+      },
+      {
+        "t": 23400,
+        "eyes": "neutral",
+        "gaze": [
+          0,
+          0
+        ],
+        "ease": "io"
+      }
+    ],
+    "mouth": [
+      {
+        "t": 0,
+        "mouth": "smile",
+        "ease": "hold"
+      },
+      {
+        "t": 2414,
+        "mouth": "smile",
+        "ease": "hold"
+      },
+      {
+        "t": 2794,
+        "mouth": "open-shout",
+        "ease": "io"
+      },
+      {
+        "t": 4489,
+        "mouth": "open-shout",
+        "ease": "hold"
+      },
+      {
+        "t": 4869,
+        "mouth": "smile",
+        "ease": "io"
+      },
+      {
+        "t": 6610,
+        "mouth": "smile",
+        "ease": "hold"
+      },
+      {
+        "t": 6990,
+        "mouth": "open-shout",
+        "ease": "io"
+      },
+      {
+        "t": 8213,
+        "mouth": "open-shout",
+        "ease": "hold"
+      },
+      {
+        "t": 8593,
+        "mouth": "smile",
+        "ease": "io"
+      },
+      {
+        "t": 11829,
+        "mouth": "smile",
+        "ease": "hold"
+      },
+      {
+        "t": 12209,
+        "mouth": "open-shout",
+        "ease": "io"
+      },
+      {
+        "t": 13826,
+        "mouth": "open-shout",
+        "ease": "hold"
+      },
+      {
+        "t": 14206,
+        "mouth": "smile",
+        "ease": "io"
+      },
+      {
+        "t": 16759,
+        "mouth": "smile",
+        "ease": "hold"
+      },
+      {
+        "t": 17139,
+        "mouth": "open-shout",
+        "ease": "io"
+      },
+      {
+        "t": 18895,
+        "mouth": "open-shout",
+        "ease": "hold"
+      },
+      {
+        "t": 19275,
+        "mouth": "smile",
+        "ease": "io"
+      },
+      {
+        "t": 23400,
+        "mouth": "smile",
+        "ease": "hold"
+      }
+    ],
+    "reducedMotion": "neutral eyes looking ahead, closed smile"
+  },
+  "playback": "Play only while steps are being counted. When they stop, finish the step and rest. Reduced motion: hold the frame at 625 ms (the Good morning stride) and a still face.",
+  "tokens": {
+    "period": 1000,
+    "samples": 40,
+    "lean": 6,
+    "pivot": [
+      150,
+      184
+    ],
+    "leg": {
+      "len": 50,
+      "foot": 22,
+      "width": 24,
+      "colour": "#54A8FF"
+    },
+    "hipWorld": {
+      "left": [
+        100,
+        285
+      ],
+      "right": [
+        220,
+        285
+      ]
+    },
+    "ground": 379,
+    "reach": 28,
+    "back": 54,
+    "stance": 580,
+    "arm": {
+      "upper": 54,
+      "fore": 52,
+      "width": 20,
+      "colour": "#BCE5FE"
+    },
+    "shoulder": {
+      "left": [
+        38,
+        176
+      ],
+      "right": [
+        283,
+        170
+      ]
+    },
+    "shadow": {
+      "cx": 160,
+      "cy": 392,
+      "rx": 126,
+      "ry": 8,
+      "colour": "#020628",
+      "opacity": 0.08
+    },
+    "follow": {
+      "forearm": [
+        100,
+        0.5
+      ],
+      "bells": [
+        110,
+        1.4
+      ]
+    },
+    "landDip": {
+      "deg": 2,
+      "from": 20,
+      "len": 280
+    },
+    "hands": {
+      "long": 0,
+      "short": 240
+    },
+    "face": {
+      "loop": 23400,
+      "morph": 380,
+      "glide": 450,
+      "blink": [
+        110,
+        40,
+        190
+      ],
+      "seed": 7
+    },
+    "direction": -1,
+    "hipLocal": {
+      "left": [
+        89.72,
+        279.22
+      ],
+      "right": [
+        209.06,
+        291.76
+      ]
+    }
+  }
+}

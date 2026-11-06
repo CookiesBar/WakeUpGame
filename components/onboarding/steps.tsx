@@ -475,7 +475,7 @@ function MathStep({ draft, set, next }: StepProps) {
                 <Option
                     key={level}
                     index={i}
-                    emoji={['🙂', '🤔', '🤯'][level]}
+                    emoji={level === 2 ? '🤯' : '🙂'}
                     label={t(`edit.mathLevel_${level}`)}
                     note={t('onboarding.math.example', { problem: examples[i] })}
                     selected={draft.mathLevel === level}

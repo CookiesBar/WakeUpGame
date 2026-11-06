@@ -6,8 +6,8 @@ import { strings, t } from '../i18n';
 import { alarmKit } from '../modules/wakey-alarm';
 import { alarmKitId } from './alarmKitId';
 import { BUNDLED_SOUNDS, DEFAULT_SOUND_ID } from './sounds';
-import { Alarm, getAlarms, getWakeChecks, saveAlarm, saveWakeChecks } from './storage';
-import { harder, ringingAgain, WAKE_CHECK_DELAY_MS, wakeCheckOutcome } from './wakeCheck';
+import { Alarm, getAlarms, getRingAgain, getWakeChecks, saveAlarm, saveRingAgain, saveWakeChecks } from './storage';
+import { harder, ringAgainEnds, WAKE_CHECK_DELAY_MS, wakeCheckOutcome } from './wakeCheck';
 
 // A local notification can't wake the app while the screen is off, so the only
 // sound the user hears is the notification's own (≤30 s on iOS). Schedule a
@@ -362,7 +362,8 @@ export const takeRingAgain = (): Alarm[] => {
     return list;
 };
 
-const armRingAgain = async (alarm: Alarm, at: number, checkViaAlarmKit: boolean): Promise<void> => {
+/** Returns true if AlarmKit rings it (it then keeps going while Stop is tapped), false for one notification burst. */
+const armRingAgain = async (alarm: Alarm, at: number, checkViaAlarmKit: boolean): Promise<boolean> => {
     const sound = getBundledSound(alarm.soundUri);
     // With AlarmKit the check's Yes and No are handled natively (the app may not even open), so the ring-again
     // chain joins the check: either answer ends it too. Builds without that link fall back to notifications.
@@ -370,7 +371,7 @@ const armRingAgain = async (alarm: Alarm, at: number, checkViaAlarmKit: boolean)
         const key = againKey(alarm.id);
         if (await armAlarmKitChain(key, at, alarm.label || t('ring.defaultLabel'), sound.notificationSound)) {
             for (let i = 0; i < ALARMKIT_CHAIN; i++) alarmKit.linkToCheck(alarm.id, alarmKitId(key, i));
-            return; // AlarmKit rings; opening the app while it does starts the game (processWakeChecks → takeRingAgain)
+            return true; // AlarmKit rings; opening the app while it does starts the game (processWakeChecks → takeRingAgain)
         }
     }
     const messages = strings().notifications;
@@ -393,11 +394,17 @@ const armRingAgain = async (alarm: Alarm, at: number, checkViaAlarmKit: boolean)
             },
         });
     }
+    return false;
 };
 
 /** Stop the ring-again (the game started, or the check was answered or settled as awake). */
 export const cancelRingAgain = async (alarmId: string): Promise<void> => {
     try {
+        const owed = await getRingAgain();
+        if (alarmId in owed) {
+            delete owed[alarmId];
+            await saveRingAgain(owed);
+        }
         cancelAlarmKitChain(againKey(alarmId));
         for (const n of await Notifications.getAllScheduledNotificationsAsync()) {
             if (n.content.data?.ringAgainId === alarmId) await Notifications.cancelScheduledNotificationAsync(n.identifier);
@@ -432,7 +439,11 @@ export const armWakeCheck = (alarm: Alarm, delayMs = WAKE_CHECK_DELAY_MS): Promi
         const sound = getBundledSound(alarm.soundUri);
         const firesAt = Date.now() + delayMs;
         const viaAlarmKit = await armAlarmKitCheck(alarm.id, firesAt, sound.notificationSound);
-        for (let i = 0; i < BACKUP_NOTIFICATION_COUNT; i++) {
+        // The alert's own Yes / No end the check natively, often without opening the app, so no JS could cancel
+        // a notification burst after a Yes: with them, AlarmKit alone asks. (Builds without them keep the burst.)
+        const nativeAnswers = viaAlarmKit && !!alarmKit?.scheduleCheck;
+        setupWakeCheckButtons(); // in the current language (the launch-time registration can predate it)
+        for (let i = 0; i < (nativeAnswers ? 0 : BACKUP_NOTIFICATION_COUNT); i++) {
             await Notifications.scheduleNotificationAsync({
                 content: {
                     title: t('wakeCheck.title'),
@@ -454,7 +465,11 @@ export const armWakeCheck = (alarm: Alarm, delayMs = WAKE_CHECK_DELAY_MS): Promi
             });
         }
         // No answer by the end of the check's ring: the alarm rings again, straight after.
-        await armRingAgain(alarm, firesAt + BACKUP_WINDOW_MS, viaAlarmKit);
+        const againAt = firesAt + BACKUP_WINDOW_MS;
+        const againViaAlarmKit = await armRingAgain(alarm, againAt, viaAlarmKit);
+        const owed = await getRingAgain();
+        owed[alarm.id] = ringAgainEnds(againAt, BACKUP_WINDOW_MS, againViaAlarmKit);
+        await saveRingAgain(owed);
         const checks = await getWakeChecks();
         checks[alarm.id] = firesAt;
         await saveWakeChecks(checks);
@@ -478,14 +493,25 @@ export const setupWakeCheckButtons = (): void => {
     ]).catch(error => console.error('Error registering wake check buttons:', error));
 };
 
+// How each check was settled by processWakeChecks in this run of the app, so a late answer isn't counted twice.
+const settled = new Map<string, { outcome: 'awake' | 'missed'; at: number }>();
+/** An answer this soon after the app opening settled its check as awake is that same open (e.g. the No that opened it). */
+const LATE_ANSWER_MS = 2 * 60 * 1000;
+
 /**
  * Answer a check. Yes: awake, done. No: not awake, like a check that rang out (the game gets one notch harder),
  * and the game plays again now: returns the alarm to ring, else null.
- * No bumps even if opening the app already settled the check as awake: that open was this No.
+ * An answer to a check that was already settled: if it rang out, the bump and the game already happened (a Yes
+ * still stops the ring-again); if the app opening just settled it as awake, that open was this answer; else stale.
  */
 export const answerWakeCheck = (alarmId: string, awake: boolean): Promise<Alarm | null> => serial(async () => {
     try {
         const checks = await getWakeChecks();
+        if (!(alarmId in checks)) {
+            const prior = settled.get(alarmId);
+            if (awake) await cancelRingAgain(alarmId);
+            if (awake || prior?.outcome !== 'awake' || Date.now() - prior.at > LATE_ANSWER_MS) return null;
+        }
         delete checks[alarmId];
         await saveWakeChecks(checks);
         await cancelWakeCheckNotifications(alarmId);
@@ -532,6 +558,7 @@ export const processWakeChecks = (): Promise<boolean> => serial(async () => {
     let leveled = false;
     try {
         const checks = await getWakeChecks();
+        const owed = await getRingAgain();
         const now = Date.now();
         let changed = false;
         for (const [alarmId, firesAt] of Object.entries(checks)) {
@@ -539,8 +566,9 @@ export const processWakeChecks = (): Promise<boolean> => serial(async () => {
             if (outcome === 'pending') continue;
             delete checks[alarmId];
             changed = true;
-            // Rang out and still ringing again: keep it ringing, and the game opens (takeRingAgain).
-            const again = outcome === 'missed' && ringingAgain(firesAt, now, BACKUP_WINDOW_MS);
+            settled.set(alarmId, { outcome, at: now });
+            // Rang out and still ringing again: keep it ringing (and owed, stored, until the game starts).
+            const again = outcome === 'missed' && (owed[alarmId] ?? 0) > now;
             await cancelWakeCheckNotifications(alarmId, again);
             if (outcome === 'missed') {
                 const alarm = (await getAlarms()).find(a => a.id === alarmId);
@@ -549,10 +577,21 @@ export const processWakeChecks = (): Promise<boolean> => serial(async () => {
                     await saveAlarm(bumped);
                     leveled = true;
                 }
-                if (alarm && again) ringNow.push(bumped || alarm);
             }
         }
         if (changed) await saveWakeChecks(checks);
+        // Owed games: a check that rang out while its ring-again still rings opens the game now, also after the
+        // app was killed in between; once the ring-again is over, it's dropped.
+        const alarms = await getAlarms();
+        for (const [alarmId, until] of Object.entries(await getRingAgain())) { // re-read: settling as awake cleared some
+            if (alarmId in checks) continue; // its check hasn't settled yet
+            const alarm = alarms.find(a => a.id === alarmId);
+            if (alarm && until > now) {
+                if (!ringNow.some(a => a.id === alarmId)) ringNow.push(alarm);
+            } else {
+                await cancelRingAgain(alarmId);
+            }
+        }
     } catch (error) {
         console.error('Error processing wake checks:', error);
     }

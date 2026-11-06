@@ -49,7 +49,8 @@ const ONBOARDING_COMPLETE_KEY = 'hasSeenOnboarding';
 // Prevent splash screen from auto-hiding
 SplashScreen.preventAutoHideAsync();
 
-type RingData = { alarmId: string; soundUri?: string; gradualVolume?: boolean; label?: string };
+/** `again`: a replay game (ring-again or a No), which must not cancel the alarm's next occurrence. */
+type RingData = { alarmId: string; soundUri?: string; gradualVolume?: boolean; label?: string; again?: boolean };
 
 const ringData = (notification: Notifications.Notification): RingData => {
   const data = notification.request.content.data ?? {};
@@ -62,11 +63,11 @@ const ringData = (notification: Notifications.Notification): RingData => {
 };
 
 // Open the full-screen ring + wake-up game
-const openRing = ({ alarmId, soundUri, gradualVolume, label }: RingData) => {
+const openRing = ({ alarmId, soundUri, gradualVolume, label, again }: RingData) => {
   // Play alarm sound; the in-app sound replaces a ringing AlarmKit alert
   stopAlarmKitAlert();
   playAlarmSound(soundUri, gradualVolume === true);
-  router.push({ pathname: '/ring', params: { alarmId, label: label ?? '' } });
+  router.push({ pathname: '/ring', params: { alarmId, label: label ?? '', ...(again && { again: '1' }) } });
 };
 
 export default function RootLayout() {
@@ -133,13 +134,15 @@ export default function RootLayout() {
     const last = lastHandledAt.current.get(key);
     if (last !== undefined && Date.now() - last < BACKUP_WINDOW_MS) return;
     lastHandledAt.current.set(key, Date.now());
-    queueRing(data);
+    queueRing({ ...data, again: true });
   };
 
-  // "Still awake?" Yes / No. No: the wake-up game again, now.
+  // "Still awake?" Yes / No. No: the wake-up game again, now (deduped with the ring-again: one game).
   const answer = (checkAlarmId: string, awake: boolean) =>
     answerWakeCheck(checkAlarmId, awake).then(alarm => {
-      if (alarm) queueRing({ alarmId: alarm.id, soundUri: alarm.soundUri ?? undefined, gradualVolume: alarm.gradualVolume, label: alarm.label });
+      if (alarm) ringAgain({ alarmId: alarm.id, soundUri: alarm.soundUri ?? undefined, gradualVolume: alarm.gradualVolume, label: alarm.label });
+      // A Yes that arrives after the miss was settled on launch: drop the replay still waiting for the stack.
+      else if (awake && pendingRing.current?.again && pendingRing.current.alarmId === checkAlarmId) pendingRing.current = null;
     });
 
   const handleResponse = (response: Notifications.NotificationResponse) => {
@@ -194,12 +197,12 @@ export default function RootLayout() {
       );
     };
     collect();
-    let again: ReturnType<typeof setTimeout> | undefined;
+    // ponytail: No opens the app and its intent can land just after the first read (on launch or 'active'),
+    // so look once more. A native event would close this race for good if 1.5 s ever proves too short.
+    let again: ReturnType<typeof setTimeout> | undefined = setTimeout(collect, 1500);
     const sub = AppState.addEventListener('change', state => {
       if (state !== 'active') return;
       collect();
-      // ponytail: No opens the app and its intent can land just after 'active', so look once more.
-      // A native event would close this race for good if 1.5 s ever proves too short.
       clearTimeout(again);
       again = setTimeout(collect, 1500);
     });

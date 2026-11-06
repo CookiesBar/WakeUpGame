@@ -184,9 +184,11 @@ enum WakeyAlarmKit {
     _ = try await AlarmManager.shared.schedule(id: uuid, configuration: configuration)
     // Remember the check's links, so one answer ends them all; a new check forgets an unread old answer.
     link(checkId, id)
+    answersLock.lock()
     var answers = UserDefaults.standard.dictionary(forKey: answersKey) as? [String: String] ?? [:]
     answers.removeValue(forKey: checkId)
     UserDefaults.standard.set(answers, forKey: answersKey)
+    answersLock.unlock()
   }
 
   static func link(_ checkId: String, _ id: String) {
@@ -196,10 +198,15 @@ enum WakeyAlarmKit {
   }
 
   // Store the answer for JS and silence the whole check (the link ringing now and the ones still to come).
+  // The intent writes an answer while JS may be reading them: both go through this lock.
+  static let answersLock = NSLock()
+
   static func answer(_ checkId: String, _ value: String) {
+    answersLock.lock()
     var answers = UserDefaults.standard.dictionary(forKey: answersKey) as? [String: String] ?? [:]
     answers[checkId] = value
     UserDefaults.standard.set(answers, forKey: answersKey)
+    answersLock.unlock()
     for id in UserDefaults.standard.stringArray(forKey: linksKey(checkId)) ?? [] {
       if let uuid = UUID(uuidString: id) { try? AlarmManager.shared.stop(id: uuid) }
       cancel(id: id)
@@ -208,6 +215,8 @@ enum WakeyAlarmKit {
   }
 
   static func takeAnswers() -> [String: String] {
+    answersLock.lock()
+    defer { answersLock.unlock() }
     let answers = UserDefaults.standard.dictionary(forKey: answersKey) as? [String: String] ?? [:]
     UserDefaults.standard.removeObject(forKey: answersKey)
     return answers

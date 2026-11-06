@@ -100,13 +100,18 @@ export default function WheelPicker({
     // The parent moved the value (not an echo of our own emit): jump to the nearest equivalent row.
     // While the wheel moves, every prop change is a late echo of one of our own emits: a hard flick
     // emits faster than React renders, and treating a stale echo as a move cancelled the spin.
-    useEffect(() => {
-        if (moving.value || selectedIndex === emitted.current) return;
-        emitted.current = selectedIndex;
+    // A real change that arrived mid-move (another drum rewrote this one) is applied once the landing settles.
+    const latest = useRef(selectedIndex);
+    latest.current = selectedIndex;
+    const sync = useCallback(() => {
+        const index = latest.current;
+        if (moving.value || index === emitted.current) return;
+        emitted.current = index;
         cancelAnimation(pos);
         const here = Math.round(pos.value);
-        pos.value = infinite ? here + mod(selectedIndex - here + span / 2, span) - span / 2 : selectedIndex;
-    }, [selectedIndex, infinite, span, pos]);
+        pos.value = infinite ? here + mod(index - here + span / 2, span) - span / 2 : index;
+    }, [infinite, span, pos, moving]);
+    useEffect(sync, [selectedIndex, sync]);
 
     const tickAt = useRef(0);
     const changed = useCallback((index: number) => {
@@ -136,7 +141,9 @@ export default function WheelPicker({
         }
         moving.value = true;
         pos.value = withSpring(t, { ...SPRING, velocity }, finished => {
-            if (finished) moving.value = false;
+            if (!finished) return;
+            moving.value = false;
+            runOnJS(sync)();
         });
     };
 

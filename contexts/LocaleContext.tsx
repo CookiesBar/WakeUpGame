@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Localization from 'expo-localization';
 import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from 'react';
 
-import { isSupportedLocale, setLocale, SupportedLocale, t, Translate } from '@/i18n';
+import { isSupportedLocale, matchLocale, setLocale, SupportedLocale, t, Translate } from '@/i18n';
 
 const LANGUAGE_KEY = '@wakeup_language';
 
@@ -12,7 +12,8 @@ export type LanguagePref = 'system' | SupportedLocale;
 /** First of the device's preferred languages that this app ships copy for, else English. */
 function detectDeviceLocale(): SupportedLocale {
     for (const locale of Localization.getLocales()) {
-        if (isSupportedLocale(locale.languageCode)) return locale.languageCode;
+        const match = matchLocale(locale.languageCode);
+        if (match) return match;
     }
     return 'en';
 }

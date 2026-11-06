@@ -1,7 +1,7 @@
 // v3 white kit: a tap that answers on touch-down, the native switch, the streak flame and week row, the black button.
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { useEffect, type ComponentRef, type ReactNode, type Ref } from 'react';
+import { useEffect, useState, type ComponentRef, type ReactNode, type Ref } from 'react';
 import { Pressable, StyleSheet, Switch, Text, View, type PressableProps, type StyleProp, type ViewStyle } from 'react-native';
 import Animated, { useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withSpring, withTiming } from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
@@ -59,13 +59,19 @@ export function CtaButton({ label, icon, onPress, disabled, style }: { label: st
   );
 }
 
-/** iOS's own switch in Wakey Blue, with a selection tick. */
+/**
+ * iOS's own switch in Wakey Blue, with a selection tick. It holds the flipped value until `value` catches up:
+ * RN's Switch snaps back to the old prop otherwise while an async toggle (saving, scheduling) runs.
+ */
 export function WSwitch({ value, onValueChange, accessibilityLabel }: { value: boolean; onValueChange: (v: boolean) => void; accessibilityLabel: string }) {
+  const [on, setOn] = useState(value);
+  useEffect(() => setOn(value), [value]);
   return (
     <Switch
-      value={value}
+      value={on}
       onValueChange={v => {
         Haptics.selectionAsync().catch(() => {});
+        setOn(v);
         onValueChange(v);
       }}
       trackColor={{ false: W.hair, true: W.blue }}

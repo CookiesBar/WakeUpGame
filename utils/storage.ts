@@ -35,7 +35,8 @@ export const generateId = (): string => {
 export const getAlarms = async (): Promise<Alarm[]> => {
     try {
         const json = await AsyncStorage.getItem(ALARMS_KEY);
-        return json ? JSON.parse(json) : [];
+        // Medium math (level 1, before v3) became Easy.
+        return json ? (JSON.parse(json) as Alarm[]).map(a => ((a.mathLevel as number) === 1 ? { ...a, mathLevel: 0 } : a)) : [];
     } catch (error) {
         console.error('Error reading alarms:', error);
         return [];
@@ -122,6 +123,23 @@ export const getWakeChecks = async (): Promise<Record<string, number>> => {
 
 export const saveWakeChecks = (checks: Record<string, number>): Promise<void> =>
     AsyncStorage.setItem(WAKE_CHECKS_KEY, JSON.stringify(checks));
+
+// Armed "ring again" after a check: alarmId → epoch ms it stops ringing. Kept until the game starts, so a
+// missed check still owes its game after the app is killed.
+const RING_AGAIN_KEY = '@wake_up_game_ring_again';
+
+export const getRingAgain = async (): Promise<Record<string, number>> => {
+    try {
+        const json = await AsyncStorage.getItem(RING_AGAIN_KEY);
+        return json ? JSON.parse(json) : {};
+    } catch (error) {
+        console.error('Error reading ring-again:', error);
+        return {};
+    }
+};
+
+export const saveRingAgain = (entries: Record<string, number>): Promise<void> =>
+    AsyncStorage.setItem(RING_AGAIN_KEY, JSON.stringify(entries));
 
 // Finished wake-ups (epoch ms), for the streak on the ring screen
 const WAKE_LOG_KEY = '@wake_up_game_wake_log';

@@ -1,5 +1,5 @@
 // Alarm Context for state management
-import React, { createContext, ReactNode, useCallback, useContext, useEffect, useState } from 'react';
+import React, { createContext, ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import {
     cancelAlarmNotifications,
@@ -59,8 +59,9 @@ export const AlarmProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             getAlarms()
                 .then(alarms => rescheduleRepeatingAlarms(alarms, { skipRinging: true }))
                 .catch(error => console.error('Error re-arming repeating alarms:', error));
-            // Opening the app settles any "Still awake?" check (awake or missed).
-            processWakeChecks().then(leveled => { if (leveled) refreshAlarms(); });
+            // Opening the app settles any "Still awake?" check (awake or missed). The root layout may have settled it
+            // a moment earlier (and made a game harder), so always re-read the alarms after.
+            processWakeChecks().then(() => refreshAlarms());
         };
         rearm();
         const subscription = AppState.addEventListener('change', state => {
@@ -102,6 +103,8 @@ export const AlarmProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         } else {
             await cancelAlarmNotifications(alarm.id);
         }
+        // Switched off, or its "Still awake?" off: an armed check (and its ring-again) goes too.
+        if (!alarm.enabled || alarm.wakeCheck === false) await cancelWakeCheck(alarm.id);
         await refreshAlarms();
     }, [refreshAlarms]);
 
@@ -112,16 +115,23 @@ export const AlarmProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         await refreshAlarms();
     }, [refreshAlarms]);
 
-    const toggleAlarmEnabled = useCallback(async (id: string): Promise<void> => {
-        const alarm = await toggleAlarmStorage(id);
-        if (alarm) {
-            if (alarm.enabled) {
-                await scheduleAlarmNotification(alarm);
-            } else {
-                await cancelAlarmNotifications(alarm.id);
+    // One toggle at a time: two quick taps must not interleave their read-flip-write and (un)scheduling.
+    const toggling = useRef<Promise<void>>(Promise.resolve());
+    const toggleAlarmEnabled = useCallback((id: string): Promise<void> => {
+        const run = toggling.current.then(async () => {
+            const alarm = await toggleAlarmStorage(id);
+            if (alarm) {
+                if (alarm.enabled) {
+                    await scheduleAlarmNotification(alarm);
+                } else {
+                    await cancelAlarmNotifications(alarm.id);
+                    await cancelWakeCheck(alarm.id);
+                }
             }
-        }
-        await refreshAlarms();
+            await refreshAlarms();
+        });
+        toggling.current = run.catch(() => undefined);
+        return run;
     }, [refreshAlarms]);
 
     return (

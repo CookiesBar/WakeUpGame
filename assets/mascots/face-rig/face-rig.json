@@ -1,0 +1,1195 @@
+{
+  "name": "Wakey face rig",
+  "version": 1,
+  "sources": [
+    "Group.svg (head, bells, dial)",
+    "pic 4.svg (hands)",
+    "Group-1.svg (open mouth, tongue)",
+    "pic5.svg (happy eyes, smile)",
+    "pic 1.svg (asleep eyes, sleepy mouth)",
+    "Group 7524.svg (angry brows, scrunched eyes)"
+  ],
+  "viewBox": [
+    0,
+    0,
+    326,
+    326
+  ],
+  "units": "SVG user units of the viewBox; angles in degrees, clockwise, 0 = 12 o'clock",
+  "anchors": {
+    "face-centre": [
+      150,
+      184
+    ],
+    "eye-left": [
+      115,
+      158
+    ],
+    "eye-right": [
+      185,
+      158
+    ],
+    "mouth": [
+      150,
+      218
+    ]
+  },
+  "colours": {
+    "body-back": "#2D6CE7",
+    "ring": "#54A8FF",
+    "face": "#E1F5FF",
+    "face-shadow": "#B6E2FC",
+    "ticks": "#8AD7FF",
+    "cheeks": "#8AD7FF",
+    "markers": "#020628",
+    "hand-long": "#3787FF",
+    "hand-short": "#2667D4",
+    "hub-base": "#50A8FE",
+    "hub-cap": "#67CDFC",
+    "bell-dome": "#51A7FF",
+    "bell-shine": "#8AD6FF",
+    "bell-band": "#2B6AE5",
+    "bell-knob": "#93D1FF",
+    "bell-mouth": "#0D246B",
+    "eye-white": "#FFFFFF",
+    "ink": "#020628",
+    "lid": "#E1F5FF",
+    "tongue": "#AA8ED6",
+    "brow-left": "#3787FF",
+    "brow-right": "#3069CE"
+  },
+  "layerOrder": [
+    "bell-left",
+    "bell-right",
+    "body-back",
+    "ring",
+    "face",
+    "face-shadow",
+    "ticks",
+    "markers",
+    "cheeks",
+    "eye-left",
+    "eye-right",
+    "mouth",
+    "hand-short",
+    "hand-long",
+    "hub"
+  ],
+  "parts": [
+    {
+      "id": "bell-left",
+      "pivot": [
+        79.44,
+        84.4
+      ],
+      "note": "where the stem enters the ring; ring it about this point"
+    },
+    {
+      "id": "bell-right",
+      "pivot": [
+        248.59,
+        90.31
+      ],
+      "note": "where the stem enters body-back"
+    },
+    {
+      "id": "body-back",
+      "pivot": null
+    },
+    {
+      "id": "ring",
+      "pivot": null
+    },
+    {
+      "id": "face",
+      "pivot": null
+    },
+    {
+      "id": "face-shadow",
+      "pivot": null
+    },
+    {
+      "id": "ticks",
+      "pivot": null,
+      "note": "squared to the dial (Group.svg is turned 2.17 degrees)"
+    },
+    {
+      "id": "markers",
+      "pivot": null
+    },
+    {
+      "id": "cheeks",
+      "pivot": null,
+      "note": "extra: the #8AD7FF cheeks from Group.svg"
+    },
+    {
+      "id": "hand-long",
+      "pivot": [
+        150,
+        184
+      ],
+      "drawnAngle": 0,
+      "restAngle": 0,
+      "length": 78.73,
+      "width": 12,
+      "note": "path points straight up; the group rotate() is the time"
+    },
+    {
+      "id": "hand-short",
+      "pivot": [
+        150,
+        184
+      ],
+      "drawnAngle": 0,
+      "restAngle": 240,
+      "length": 55.56,
+      "width": 14.51
+    },
+    {
+      "id": "hub",
+      "pivot": [
+        150,
+        184
+      ]
+    },
+    {
+      "id": "eye-left",
+      "anchor": [
+        115,
+        158
+      ],
+      "children": {
+        "eye-white": "eye-left-white",
+        "pupil": "eye-left-pupil",
+        "lid": "eye-left-lid",
+        "brow": "eye-left-brow"
+      },
+      "targets": [
+        "eye-left-white-shape",
+        "eye-left-lid-clip-shape",
+        "eye-left-pupil-shape",
+        "eye-left-lid-skin",
+        "eye-left-lash",
+        "eye-left-brow-shape"
+      ],
+      "clips": {
+        "pupil": "eye-left-white-clip (the white itself)",
+        "lid": "eye-left-lid-clip (the white grown by 2)"
+      }
+    },
+    {
+      "id": "eye-right",
+      "anchor": [
+        185,
+        158
+      ],
+      "children": {
+        "eye-white": "eye-right-white",
+        "pupil": "eye-right-pupil",
+        "lid": "eye-right-lid",
+        "brow": "eye-right-brow"
+      },
+      "targets": [
+        "eye-right-white-shape",
+        "eye-right-lid-clip-shape",
+        "eye-right-pupil-shape",
+        "eye-right-lid-skin",
+        "eye-right-lash",
+        "eye-right-brow-shape"
+      ],
+      "clips": {
+        "pupil": "eye-right-white-clip (the white itself)",
+        "lid": "eye-right-lid-clip (the white grown by 2)"
+      }
+    },
+    {
+      "id": "mouth",
+      "anchor": [
+        150,
+        218
+      ],
+      "targets": [
+        "mouth-shape",
+        "mouth-tongue"
+      ],
+      "clips": {
+        "tongue": "mouth-clip (the mouth shape)"
+      }
+    }
+  ],
+  "rules": [
+    "All parts share one viewBox; nothing is nested in a transform except the hands' rotate().",
+    "Every eye white and lid clip is centred on its eye anchor; pupils, lashes and brows are offsets from it.",
+    "Every mouth's bounding box is centred on the mouth anchor.",
+    "Paths in one family have the same commands, so any two expressions morph point by point.",
+    "Opacity is part of an expression. Fade in over the last 40% of a morph and fade out over the first 40% (preview.html does this), so a lash appears when the lid arrives and pupils are gone before the happy arcs show."
+  ],
+  "families": {
+    "eye-white": "MCCCCZ",
+    "eye-lid-clip": "MCCCCZ",
+    "eye-lid-skin": "MLLCZMLLCZ",
+    "eye-lash": "MCCCC",
+    "eye-brow": "MCCCC",
+    "eye-pupil": "MCCCCZ",
+    "mouth": "MCCCCCCZ",
+    "tongue": "MCCCCZ"
+  },
+  "expressions": {
+    "eyes": [
+      {
+        "name": "neutral",
+        "group": "eyes-neutral",
+        "targets": {
+          "eye-left-white-shape": {
+            "id": "eyes-neutral--eye-left-white",
+            "d": "M115 133C125.49 133 134 144.19 134 158C134 171.81 125.49 183 115 183C104.51 183 96 171.81 96 158C96 144.19 104.51 133 115 133Z",
+            "opacity": 1
+          },
+          "eye-left-lid-clip-shape": {
+            "id": "eyes-neutral--eye-left-lid-clip",
+            "d": "M115 131C126.6 131 136 143.09 136 158C136 172.91 126.6 185 115 185C103.4 185 94 172.91 94 158C94 143.09 103.4 131 115 131Z",
+            "opacity": 1
+          },
+          "eye-left-lid-skin": {
+            "id": "eyes-neutral--eye-left-lid-skin",
+            "d": "M83 124L147 124L147 129C125.67 129 104.33 129 83 129ZM147 192L83 192L83 187C104.33 187 125.67 187 147 187Z",
+            "opacity": 1
+          },
+          "eye-left-lash": {
+            "id": "eyes-neutral--eye-left-lash",
+            "d": "M97.98 169.1C100.81 170.07 103.65 170.79 106.49 171.28C109.33 171.76 112.16 172 115 172C117.84 172 120.67 171.76 123.51 171.28C126.35 170.79 129.19 170.07 132.02 169.1",
+            "opacity": 0
+          },
+          "eye-left-brow-shape": {
+            "id": "eyes-neutral--eye-left-brow",
+            "d": "M95 118C97.49 119.66 101.1 121.44 104.94 120.7C110.17 119.68 111.57 114.81 115.59 115.11C119.53 115.41 120.14 120.74 124.74 121.37C130.55 122.15 134.52 118.46 135 118",
+            "opacity": 0
+          },
+          "eye-left-pupil-shape": {
+            "id": "eyes-neutral--eye-left-pupil",
+            "d": "M115 146C119.97 146 124 151.37 124 158C124 164.63 119.97 170 115 170C110.03 170 106 164.63 106 158C106 151.37 110.03 146 115 146Z",
+            "opacity": 1
+          },
+          "eye-right-white-shape": {
+            "id": "eyes-neutral--eye-right-white",
+            "d": "M185 133C174.51 133 166 144.19 166 158C166 171.81 174.51 183 185 183C195.49 183 204 171.81 204 158C204 144.19 195.49 133 185 133Z",
+            "opacity": 1
+          },
+          "eye-right-lid-clip-shape": {
+            "id": "eyes-neutral--eye-right-lid-clip",
+            "d": "M185 131C173.4 131 164 143.09 164 158C164 172.91 173.4 185 185 185C196.6 185 206 172.91 206 158C206 143.09 196.6 131 185 131Z",
+            "opacity": 1
+          },
+          "eye-right-lid-skin": {
+            "id": "eyes-neutral--eye-right-lid-skin",
+            "d": "M217 124L153 124L153 129C174.33 129 195.67 129 217 129ZM153 192L217 192L217 187C195.67 187 174.33 187 153 187Z",
+            "opacity": 1
+          },
+          "eye-right-lash": {
+            "id": "eyes-neutral--eye-right-lash",
+            "d": "M202.02 169.1C199.19 170.07 196.35 170.79 193.51 171.28C190.67 171.76 187.84 172 185 172C182.16 172 179.33 171.76 176.49 171.28C173.65 170.79 170.81 170.07 167.98 169.1",
+            "opacity": 0
+          },
+          "eye-right-brow-shape": {
+            "id": "eyes-neutral--eye-right-brow",
+            "d": "M205 118C202.51 119.66 198.9 121.44 195.06 120.7C189.83 119.68 188.43 114.81 184.41 115.11C180.47 115.41 179.86 120.74 175.26 121.37C169.45 122.15 165.48 118.46 165 118",
+            "opacity": 0
+          },
+          "eye-right-pupil-shape": {
+            "id": "eyes-neutral--eye-right-pupil",
+            "d": "M185 146C189.97 146 194 151.37 194 158C194 164.63 189.97 170 185 170C180.03 170 176 164.63 176 158C176 151.37 180.03 146 185 146Z",
+            "opacity": 1
+          }
+        }
+      },
+      {
+        "name": "look-left",
+        "group": "eyes-look-left",
+        "note": "screen left (the character's right)",
+        "targets": {
+          "eye-left-white-shape": {
+            "id": "eyes-look-left--eye-left-white",
+            "d": "M115 133C125.49 133 134 144.19 134 158C134 171.81 125.49 183 115 183C104.51 183 96 171.81 96 158C96 144.19 104.51 133 115 133Z",
+            "opacity": 1
+          },
+          "eye-left-lid-clip-shape": {
+            "id": "eyes-look-left--eye-left-lid-clip",
+            "d": "M115 131C126.6 131 136 143.09 136 158C136 172.91 126.6 185 115 185C103.4 185 94 172.91 94 158C94 143.09 103.4 131 115 131Z",
+            "opacity": 1
+          },
+          "eye-left-lid-skin": {
+            "id": "eyes-look-left--eye-left-lid-skin",
+            "d": "M83 124L147 124L147 129C125.67 129 104.33 129 83 129ZM147 192L83 192L83 187C104.33 187 125.67 187 147 187Z",
+            "opacity": 1
+          },
+          "eye-left-lash": {
+            "id": "eyes-look-left--eye-left-lash",
+            "d": "M97.98 169.1C100.81 170.07 103.65 170.79 106.49 171.28C109.33 171.76 112.16 172 115 172C117.84 172 120.67 171.76 123.51 171.28C126.35 170.79 129.19 170.07 132.02 169.1",
+            "opacity": 0
+          },
+          "eye-left-brow-shape": {
+            "id": "eyes-look-left--eye-left-brow",
+            "d": "M95 118C97.49 119.66 101.1 121.44 104.94 120.7C110.17 119.68 111.57 114.81 115.59 115.11C119.53 115.41 120.14 120.74 124.74 121.37C130.55 122.15 134.52 118.46 135 118",
+            "opacity": 0
+          },
+          "eye-left-pupil-shape": {
+            "id": "eyes-look-left--eye-left-pupil",
+            "d": "M107 146C111.97 146 116 151.37 116 158C116 164.63 111.97 170 107 170C102.03 170 98 164.63 98 158C98 151.37 102.03 146 107 146Z",
+            "opacity": 1
+          },
+          "eye-right-white-shape": {
+            "id": "eyes-look-left--eye-right-white",
+            "d": "M185 133C174.51 133 166 144.19 166 158C166 171.81 174.51 183 185 183C195.49 183 204 171.81 204 158C204 144.19 195.49 133 185 133Z",
+            "opacity": 1
+          },
+          "eye-right-lid-clip-shape": {
+            "id": "eyes-look-left--eye-right-lid-clip",
+            "d": "M185 131C173.4 131 164 143.09 164 158C164 172.91 173.4 185 185 185C196.6 185 206 172.91 206 158C206 143.09 196.6 131 185 131Z",
+            "opacity": 1
+          },
+          "eye-right-lid-skin": {
+            "id": "eyes-look-left--eye-right-lid-skin",
+            "d": "M217 124L153 124L153 129C174.33 129 195.67 129 217 129ZM153 192L217 192L217 187C195.67 187 174.33 187 153 187Z",
+            "opacity": 1
+          },
+          "eye-right-lash": {
+            "id": "eyes-look-left--eye-right-lash",
+            "d": "M202.02 169.1C199.19 170.07 196.35 170.79 193.51 171.28C190.67 171.76 187.84 172 185 172C182.16 172 179.33 171.76 176.49 171.28C173.65 170.79 170.81 170.07 167.98 169.1",
+            "opacity": 0
+          },
+          "eye-right-brow-shape": {
+            "id": "eyes-look-left--eye-right-brow",
+            "d": "M205 118C202.51 119.66 198.9 121.44 195.06 120.7C189.83 119.68 188.43 114.81 184.41 115.11C180.47 115.41 179.86 120.74 175.26 121.37C169.45 122.15 165.48 118.46 165 118",
+            "opacity": 0
+          },
+          "eye-right-pupil-shape": {
+            "id": "eyes-look-left--eye-right-pupil",
+            "d": "M177 146C181.97 146 186 151.37 186 158C186 164.63 181.97 170 177 170C172.03 170 168 164.63 168 158C168 151.37 172.03 146 177 146Z",
+            "opacity": 1
+          }
+        }
+      },
+      {
+        "name": "look-right",
+        "group": "eyes-look-right",
+        "targets": {
+          "eye-left-white-shape": {
+            "id": "eyes-look-right--eye-left-white",
+            "d": "M115 133C125.49 133 134 144.19 134 158C134 171.81 125.49 183 115 183C104.51 183 96 171.81 96 158C96 144.19 104.51 133 115 133Z",
+            "opacity": 1
+          },
+          "eye-left-lid-clip-shape": {
+            "id": "eyes-look-right--eye-left-lid-clip",
+            "d": "M115 131C126.6 131 136 143.09 136 158C136 172.91 126.6 185 115 185C103.4 185 94 172.91 94 158C94 143.09 103.4 131 115 131Z",
+            "opacity": 1
+          },
+          "eye-left-lid-skin": {
+            "id": "eyes-look-right--eye-left-lid-skin",
+            "d": "M83 124L147 124L147 129C125.67 129 104.33 129 83 129ZM147 192L83 192L83 187C104.33 187 125.67 187 147 187Z",
+            "opacity": 1
+          },
+          "eye-left-lash": {
+            "id": "eyes-look-right--eye-left-lash",
+            "d": "M97.98 169.1C100.81 170.07 103.65 170.79 106.49 171.28C109.33 171.76 112.16 172 115 172C117.84 172 120.67 171.76 123.51 171.28C126.35 170.79 129.19 170.07 132.02 169.1",
+            "opacity": 0
+          },
+          "eye-left-brow-shape": {
+            "id": "eyes-look-right--eye-left-brow",
+            "d": "M95 118C97.49 119.66 101.1 121.44 104.94 120.7C110.17 119.68 111.57 114.81 115.59 115.11C119.53 115.41 120.14 120.74 124.74 121.37C130.55 122.15 134.52 118.46 135 118",
+            "opacity": 0
+          },
+          "eye-left-pupil-shape": {
+            "id": "eyes-look-right--eye-left-pupil",
+            "d": "M123 146C127.97 146 132 151.37 132 158C132 164.63 127.97 170 123 170C118.03 170 114 164.63 114 158C114 151.37 118.03 146 123 146Z",
+            "opacity": 1
+          },
+          "eye-right-white-shape": {
+            "id": "eyes-look-right--eye-right-white",
+            "d": "M185 133C174.51 133 166 144.19 166 158C166 171.81 174.51 183 185 183C195.49 183 204 171.81 204 158C204 144.19 195.49 133 185 133Z",
+            "opacity": 1
+          },
+          "eye-right-lid-clip-shape": {
+            "id": "eyes-look-right--eye-right-lid-clip",
+            "d": "M185 131C173.4 131 164 143.09 164 158C164 172.91 173.4 185 185 185C196.6 185 206 172.91 206 158C206 143.09 196.6 131 185 131Z",
+            "opacity": 1
+          },
+          "eye-right-lid-skin": {
+            "id": "eyes-look-right--eye-right-lid-skin",
+            "d": "M217 124L153 124L153 129C174.33 129 195.67 129 217 129ZM153 192L217 192L217 187C195.67 187 174.33 187 153 187Z",
+            "opacity": 1
+          },
+          "eye-right-lash": {
+            "id": "eyes-look-right--eye-right-lash",
+            "d": "M202.02 169.1C199.19 170.07 196.35 170.79 193.51 171.28C190.67 171.76 187.84 172 185 172C182.16 172 179.33 171.76 176.49 171.28C173.65 170.79 170.81 170.07 167.98 169.1",
+            "opacity": 0
+          },
+          "eye-right-brow-shape": {
+            "id": "eyes-look-right--eye-right-brow",
+            "d": "M205 118C202.51 119.66 198.9 121.44 195.06 120.7C189.83 119.68 188.43 114.81 184.41 115.11C180.47 115.41 179.86 120.74 175.26 121.37C169.45 122.15 165.48 118.46 165 118",
+            "opacity": 0
+          },
+          "eye-right-pupil-shape": {
+            "id": "eyes-look-right--eye-right-pupil",
+            "d": "M193 146C197.97 146 202 151.37 202 158C202 164.63 197.97 170 193 170C188.03 170 184 164.63 184 158C184 151.37 188.03 146 193 146Z",
+            "opacity": 1
+          }
+        }
+      },
+      {
+        "name": "look-up",
+        "group": "eyes-look-up",
+        "targets": {
+          "eye-left-white-shape": {
+            "id": "eyes-look-up--eye-left-white",
+            "d": "M115 133C125.49 133 134 144.19 134 158C134 171.81 125.49 183 115 183C104.51 183 96 171.81 96 158C96 144.19 104.51 133 115 133Z",
+            "opacity": 1
+          },
+          "eye-left-lid-clip-shape": {
+            "id": "eyes-look-up--eye-left-lid-clip",
+            "d": "M115 131C126.6 131 136 143.09 136 158C136 172.91 126.6 185 115 185C103.4 185 94 172.91 94 158C94 143.09 103.4 131 115 131Z",
+            "opacity": 1
+          },
+          "eye-left-lid-skin": {
+            "id": "eyes-look-up--eye-left-lid-skin",
+            "d": "M83 124L147 124L147 129C125.67 129 104.33 129 83 129ZM147 192L83 192L83 187C104.33 187 125.67 187 147 187Z",
+            "opacity": 1
+          },
+          "eye-left-lash": {
+            "id": "eyes-look-up--eye-left-lash",
+            "d": "M97.98 169.1C100.81 170.07 103.65 170.79 106.49 171.28C109.33 171.76 112.16 172 115 172C117.84 172 120.67 171.76 123.51 171.28C126.35 170.79 129.19 170.07 132.02 169.1",
+            "opacity": 0
+          },
+          "eye-left-brow-shape": {
+            "id": "eyes-look-up--eye-left-brow",
+            "d": "M95 118C97.49 119.66 101.1 121.44 104.94 120.7C110.17 119.68 111.57 114.81 115.59 115.11C119.53 115.41 120.14 120.74 124.74 121.37C130.55 122.15 134.52 118.46 135 118",
+            "opacity": 0
+          },
+          "eye-left-pupil-shape": {
+            "id": "eyes-look-up--eye-left-pupil",
+            "d": "M115 135C119.97 135 124 140.37 124 147C124 153.63 119.97 159 115 159C110.03 159 106 153.63 106 147C106 140.37 110.03 135 115 135Z",
+            "opacity": 1
+          },
+          "eye-right-white-shape": {
+            "id": "eyes-look-up--eye-right-white",
+            "d": "M185 133C174.51 133 166 144.19 166 158C166 171.81 174.51 183 185 183C195.49 183 204 171.81 204 158C204 144.19 195.49 133 185 133Z",
+            "opacity": 1
+          },
+          "eye-right-lid-clip-shape": {
+            "id": "eyes-look-up--eye-right-lid-clip",
+            "d": "M185 131C173.4 131 164 143.09 164 158C164 172.91 173.4 185 185 185C196.6 185 206 172.91 206 158C206 143.09 196.6 131 185 131Z",
+            "opacity": 1
+          },
+          "eye-right-lid-skin": {
+            "id": "eyes-look-up--eye-right-lid-skin",
+            "d": "M217 124L153 124L153 129C174.33 129 195.67 129 217 129ZM153 192L217 192L217 187C195.67 187 174.33 187 153 187Z",
+            "opacity": 1
+          },
+          "eye-right-lash": {
+            "id": "eyes-look-up--eye-right-lash",
+            "d": "M202.02 169.1C199.19 170.07 196.35 170.79 193.51 171.28C190.67 171.76 187.84 172 185 172C182.16 172 179.33 171.76 176.49 171.28C173.65 170.79 170.81 170.07 167.98 169.1",
+            "opacity": 0
+          },
+          "eye-right-brow-shape": {
+            "id": "eyes-look-up--eye-right-brow",
+            "d": "M205 118C202.51 119.66 198.9 121.44 195.06 120.7C189.83 119.68 188.43 114.81 184.41 115.11C180.47 115.41 179.86 120.74 175.26 121.37C169.45 122.15 165.48 118.46 165 118",
+            "opacity": 0
+          },
+          "eye-right-pupil-shape": {
+            "id": "eyes-look-up--eye-right-pupil",
+            "d": "M185 135C189.97 135 194 140.37 194 147C194 153.63 189.97 159 185 159C180.03 159 176 153.63 176 147C176 140.37 180.03 135 185 135Z",
+            "opacity": 1
+          }
+        }
+      },
+      {
+        "name": "look-down",
+        "group": "eyes-look-down",
+        "targets": {
+          "eye-left-white-shape": {
+            "id": "eyes-look-down--eye-left-white",
+            "d": "M115 133C125.49 133 134 144.19 134 158C134 171.81 125.49 183 115 183C104.51 183 96 171.81 96 158C96 144.19 104.51 133 115 133Z",
+            "opacity": 1
+          },
+          "eye-left-lid-clip-shape": {
+            "id": "eyes-look-down--eye-left-lid-clip",
+            "d": "M115 131C126.6 131 136 143.09 136 158C136 172.91 126.6 185 115 185C103.4 185 94 172.91 94 158C94 143.09 103.4 131 115 131Z",
+            "opacity": 1
+          },
+          "eye-left-lid-skin": {
+            "id": "eyes-look-down--eye-left-lid-skin",
+            "d": "M83 124L147 124L147 129C125.67 129 104.33 129 83 129ZM147 192L83 192L83 187C104.33 187 125.67 187 147 187Z",
+            "opacity": 1
+          },
+          "eye-left-lash": {
+            "id": "eyes-look-down--eye-left-lash",
+            "d": "M97.98 169.1C100.81 170.07 103.65 170.79 106.49 171.28C109.33 171.76 112.16 172 115 172C117.84 172 120.67 171.76 123.51 171.28C126.35 170.79 129.19 170.07 132.02 169.1",
+            "opacity": 0
+          },
+          "eye-left-brow-shape": {
+            "id": "eyes-look-down--eye-left-brow",
+            "d": "M95 118C97.49 119.66 101.1 121.44 104.94 120.7C110.17 119.68 111.57 114.81 115.59 115.11C119.53 115.41 120.14 120.74 124.74 121.37C130.55 122.15 134.52 118.46 135 118",
+            "opacity": 0
+          },
+          "eye-left-pupil-shape": {
+            "id": "eyes-look-down--eye-left-pupil",
+            "d": "M115 157C119.97 157 124 162.37 124 169C124 175.63 119.97 181 115 181C110.03 181 106 175.63 106 169C106 162.37 110.03 157 115 157Z",
+            "opacity": 1
+          },
+          "eye-right-white-shape": {
+            "id": "eyes-look-down--eye-right-white",
+            "d": "M185 133C174.51 133 166 144.19 166 158C166 171.81 174.51 183 185 183C195.49 183 204 171.81 204 158C204 144.19 195.49 133 185 133Z",
+            "opacity": 1
+          },
+          "eye-right-lid-clip-shape": {
+            "id": "eyes-look-down--eye-right-lid-clip",
+            "d": "M185 131C173.4 131 164 143.09 164 158C164 172.91 173.4 185 185 185C196.6 185 206 172.91 206 158C206 143.09 196.6 131 185 131Z",
+            "opacity": 1
+          },
+          "eye-right-lid-skin": {
+            "id": "eyes-look-down--eye-right-lid-skin",
+            "d": "M217 124L153 124L153 129C174.33 129 195.67 129 217 129ZM153 192L217 192L217 187C195.67 187 174.33 187 153 187Z",
+            "opacity": 1
+          },
+          "eye-right-lash": {
+            "id": "eyes-look-down--eye-right-lash",
+            "d": "M202.02 169.1C199.19 170.07 196.35 170.79 193.51 171.28C190.67 171.76 187.84 172 185 172C182.16 172 179.33 171.76 176.49 171.28C173.65 170.79 170.81 170.07 167.98 169.1",
+            "opacity": 0
+          },
+          "eye-right-brow-shape": {
+            "id": "eyes-look-down--eye-right-brow",
+            "d": "M205 118C202.51 119.66 198.9 121.44 195.06 120.7C189.83 119.68 188.43 114.81 184.41 115.11C180.47 115.41 179.86 120.74 175.26 121.37C169.45 122.15 165.48 118.46 165 118",
+            "opacity": 0
+          },
+          "eye-right-pupil-shape": {
+            "id": "eyes-look-down--eye-right-pupil",
+            "d": "M185 157C189.97 157 194 162.37 194 169C194 175.63 189.97 181 185 181C180.03 181 176 175.63 176 169C176 162.37 180.03 157 185 157Z",
+            "opacity": 1
+          }
+        }
+      },
+      {
+        "name": "blink-closed",
+        "group": "eyes-blink-closed",
+        "targets": {
+          "eye-left-white-shape": {
+            "id": "eyes-blink-closed--eye-left-white",
+            "d": "M115 133C125.49 133 134 144.19 134 158C134 171.81 125.49 183 115 183C104.51 183 96 171.81 96 158C96 144.19 104.51 133 115 133Z",
+            "opacity": 1
+          },
+          "eye-left-lid-clip-shape": {
+            "id": "eyes-blink-closed--eye-left-lid-clip",
+            "d": "M115 131C126.6 131 136 143.09 136 158C136 172.91 126.6 185 115 185C103.4 185 94 172.91 94 158C94 143.09 103.4 131 115 131Z",
+            "opacity": 1
+          },
+          "eye-left-lid-skin": {
+            "id": "eyes-blink-closed--eye-left-lid-skin",
+            "d": "M83 124L147 124L147 161.76C125.67 175.41 104.33 175.41 83 161.76ZM147 192L83 192L83 158.76C104.33 172.41 125.67 172.41 147 158.76Z",
+            "opacity": 1
+          },
+          "eye-left-lash": {
+            "id": "eyes-blink-closed--eye-left-lash",
+            "d": "M97.98 169.1C100.81 170.07 103.65 170.79 106.49 171.28C109.33 171.76 112.16 172 115 172C117.84 172 120.67 171.76 123.51 171.28C126.35 170.79 129.19 170.07 132.02 169.1",
+            "opacity": 1
+          },
+          "eye-left-brow-shape": {
+            "id": "eyes-blink-closed--eye-left-brow",
+            "d": "M95 118C97.49 119.66 101.1 121.44 104.94 120.7C110.17 119.68 111.57 114.81 115.59 115.11C119.53 115.41 120.14 120.74 124.74 121.37C130.55 122.15 134.52 118.46 135 118",
+            "opacity": 0
+          },
+          "eye-left-pupil-shape": {
+            "id": "eyes-blink-closed--eye-left-pupil",
+            "d": "M115 146C119.97 146 124 151.37 124 158C124 164.63 119.97 170 115 170C110.03 170 106 164.63 106 158C106 151.37 110.03 146 115 146Z",
+            "opacity": 1
+          },
+          "eye-right-white-shape": {
+            "id": "eyes-blink-closed--eye-right-white",
+            "d": "M185 133C174.51 133 166 144.19 166 158C166 171.81 174.51 183 185 183C195.49 183 204 171.81 204 158C204 144.19 195.49 133 185 133Z",
+            "opacity": 1
+          },
+          "eye-right-lid-clip-shape": {
+            "id": "eyes-blink-closed--eye-right-lid-clip",
+            "d": "M185 131C173.4 131 164 143.09 164 158C164 172.91 173.4 185 185 185C196.6 185 206 172.91 206 158C206 143.09 196.6 131 185 131Z",
+            "opacity": 1
+          },
+          "eye-right-lid-skin": {
+            "id": "eyes-blink-closed--eye-right-lid-skin",
+            "d": "M217 124L153 124L153 161.76C174.33 175.41 195.67 175.41 217 161.76ZM153 192L217 192L217 158.76C195.67 172.41 174.33 172.41 153 158.76Z",
+            "opacity": 1
+          },
+          "eye-right-lash": {
+            "id": "eyes-blink-closed--eye-right-lash",
+            "d": "M202.02 169.1C199.19 170.07 196.35 170.79 193.51 171.28C190.67 171.76 187.84 172 185 172C182.16 172 179.33 171.76 176.49 171.28C173.65 170.79 170.81 170.07 167.98 169.1",
+            "opacity": 1
+          },
+          "eye-right-brow-shape": {
+            "id": "eyes-blink-closed--eye-right-brow",
+            "d": "M205 118C202.51 119.66 198.9 121.44 195.06 120.7C189.83 119.68 188.43 114.81 184.41 115.11C180.47 115.41 179.86 120.74 175.26 121.37C169.45 122.15 165.48 118.46 165 118",
+            "opacity": 0
+          },
+          "eye-right-pupil-shape": {
+            "id": "eyes-blink-closed--eye-right-pupil",
+            "d": "M185 146C189.97 146 194 151.37 194 158C194 164.63 189.97 170 185 170C180.03 170 176 164.63 176 158C176 151.37 180.03 146 185 146Z",
+            "opacity": 1
+          }
+        }
+      },
+      {
+        "name": "happy-closed",
+        "group": "eyes-happy-closed",
+        "source": "pic5",
+        "targets": {
+          "eye-left-white-shape": {
+            "id": "eyes-happy-closed--eye-left-white",
+            "d": "M115 133C126.6 133 136 144.19 136 158C136 171.81 126.6 183 115 183C103.4 183 94 171.81 94 158C94 144.19 103.4 133 115 133Z",
+            "opacity": 1
+          },
+          "eye-left-lid-clip-shape": {
+            "id": "eyes-happy-closed--eye-left-lid-clip",
+            "d": "M115 131C127.7 131 138 143.09 138 158C138 172.91 127.7 185 115 185C102.3 185 92 172.91 92 158C92 143.09 102.3 131 115 131Z",
+            "opacity": 1
+          },
+          "eye-left-lid-skin": {
+            "id": "eyes-happy-closed--eye-left-lid-skin",
+            "d": "M83 124L147 124L147 129C125.67 129 104.33 129 83 129ZM147 192L83 192L83 187C104.33 187 125.67 187 147 187Z",
+            "opacity": 1
+          },
+          "eye-left-lash": {
+            "id": "eyes-happy-closed--eye-left-lash",
+            "d": "M98.29 155.69C98.29 155.69 98.6 158.59 99.5 162.21C100.41 165.83 101.91 170.17 104.3 173.07C106.7 175.96 109.98 177.41 114.45 175.24C118.92 173.07 124.58 167.27 131.71 155.69",
+            "opacity": 1
+          },
+          "eye-left-brow-shape": {
+            "id": "eyes-happy-closed--eye-left-brow",
+            "d": "M95 118C97.49 119.66 101.1 121.44 104.94 120.7C110.17 119.68 111.57 114.81 115.59 115.11C119.53 115.41 120.14 120.74 124.74 121.37C130.55 122.15 134.52 118.46 135 118",
+            "opacity": 0
+          },
+          "eye-left-pupil-shape": {
+            "id": "eyes-happy-closed--eye-left-pupil",
+            "d": "M115 150C119.97 150 124 155.37 124 162C124 168.63 119.97 174 115 174C110.03 174 106 168.63 106 162C106 155.37 110.03 150 115 150Z",
+            "opacity": 0
+          },
+          "eye-right-white-shape": {
+            "id": "eyes-happy-closed--eye-right-white",
+            "d": "M185 133C173.4 133 164 144.19 164 158C164 171.81 173.4 183 185 183C196.6 183 206 171.81 206 158C206 144.19 196.6 133 185 133Z",
+            "opacity": 1
+          },
+          "eye-right-lid-clip-shape": {
+            "id": "eyes-happy-closed--eye-right-lid-clip",
+            "d": "M185 131C172.3 131 162 143.09 162 158C162 172.91 172.3 185 185 185C197.7 185 208 172.91 208 158C208 143.09 197.7 131 185 131Z",
+            "opacity": 1
+          },
+          "eye-right-lid-skin": {
+            "id": "eyes-happy-closed--eye-right-lid-skin",
+            "d": "M217 124L153 124L153 129C174.33 129 195.67 129 217 129ZM153 192L217 192L217 187C195.67 187 174.33 187 153 187Z",
+            "opacity": 1
+          },
+          "eye-right-lash": {
+            "id": "eyes-happy-closed--eye-right-lash",
+            "d": "M201.71 155.69C201.71 155.69 201.4 158.59 200.5 162.21C199.59 165.83 198.09 170.17 195.7 173.07C193.3 175.96 190.02 177.41 185.55 175.24C181.08 173.07 175.42 167.27 168.29 155.69",
+            "opacity": 1
+          },
+          "eye-right-brow-shape": {
+            "id": "eyes-happy-closed--eye-right-brow",
+            "d": "M205 118C202.51 119.66 198.9 121.44 195.06 120.7C189.83 119.68 188.43 114.81 184.41 115.11C180.47 115.41 179.86 120.74 175.26 121.37C169.45 122.15 165.48 118.46 165 118",
+            "opacity": 0
+          },
+          "eye-right-pupil-shape": {
+            "id": "eyes-happy-closed--eye-right-pupil",
+            "d": "M185 150C189.97 150 194 155.37 194 162C194 168.63 189.97 174 185 174C180.03 174 176 168.63 176 162C176 155.37 180.03 150 185 150Z",
+            "opacity": 0
+          }
+        }
+      },
+      {
+        "name": "sleepy-half-lid",
+        "group": "eyes-sleepy-half-lid",
+        "targets": {
+          "eye-left-white-shape": {
+            "id": "eyes-sleepy-half-lid--eye-left-white",
+            "d": "M115 133C125.49 133 134 144.19 134 158C134 171.81 125.49 183 115 183C104.51 183 96 171.81 96 158C96 144.19 104.51 133 115 133Z",
+            "opacity": 1
+          },
+          "eye-left-lid-clip-shape": {
+            "id": "eyes-sleepy-half-lid--eye-left-lid-clip",
+            "d": "M115 131C126.6 131 136 143.09 136 158C136 172.91 126.6 185 115 185C103.4 185 94 172.91 94 158C94 143.09 103.4 131 115 131Z",
+            "opacity": 1
+          },
+          "eye-left-lid-skin": {
+            "id": "eyes-sleepy-half-lid--eye-left-lid-skin",
+            "d": "M83 124L147 124L147 147.66C125.67 166.78 104.33 166.78 83 147.66ZM147 192L83 192L83 187C104.33 187 125.67 187 147 187Z",
+            "opacity": 1
+          },
+          "eye-left-lash": {
+            "id": "eyes-sleepy-half-lid--eye-left-lash",
+            "d": "M96.02 156.95C99.18 158.64 102.34 159.9 105.51 160.74C108.67 161.58 111.84 162 115 162C118.16 162 121.33 161.58 124.49 160.74C127.66 159.9 130.82 158.64 133.98 156.95",
+            "opacity": 1
+          },
+          "eye-left-brow-shape": {
+            "id": "eyes-sleepy-half-lid--eye-left-brow",
+            "d": "M95 118C97.49 119.66 101.1 121.44 104.94 120.7C110.17 119.68 111.57 114.81 115.59 115.11C119.53 115.41 120.14 120.74 124.74 121.37C130.55 122.15 134.52 118.46 135 118",
+            "opacity": 0
+          },
+          "eye-left-pupil-shape": {
+            "id": "eyes-sleepy-half-lid--eye-left-pupil",
+            "d": "M115 156C119.97 156 124 161.37 124 168C124 174.63 119.97 180 115 180C110.03 180 106 174.63 106 168C106 161.37 110.03 156 115 156Z",
+            "opacity": 1
+          },
+          "eye-right-white-shape": {
+            "id": "eyes-sleepy-half-lid--eye-right-white",
+            "d": "M185 133C174.51 133 166 144.19 166 158C166 171.81 174.51 183 185 183C195.49 183 204 171.81 204 158C204 144.19 195.49 133 185 133Z",
+            "opacity": 1
+          },
+          "eye-right-lid-clip-shape": {
+            "id": "eyes-sleepy-half-lid--eye-right-lid-clip",
+            "d": "M185 131C173.4 131 164 143.09 164 158C164 172.91 173.4 185 185 185C196.6 185 206 172.91 206 158C206 143.09 196.6 131 185 131Z",
+            "opacity": 1
+          },
+          "eye-right-lid-skin": {
+            "id": "eyes-sleepy-half-lid--eye-right-lid-skin",
+            "d": "M217 124L153 124L153 147.66C174.33 166.78 195.67 166.78 217 147.66ZM153 192L217 192L217 187C195.67 187 174.33 187 153 187Z",
+            "opacity": 1
+          },
+          "eye-right-lash": {
+            "id": "eyes-sleepy-half-lid--eye-right-lash",
+            "d": "M203.98 156.95C200.82 158.64 197.66 159.9 194.49 160.74C191.33 161.58 188.16 162 185 162C181.84 162 178.67 161.58 175.51 160.74C172.34 159.9 169.18 158.64 166.02 156.95",
+            "opacity": 1
+          },
+          "eye-right-brow-shape": {
+            "id": "eyes-sleepy-half-lid--eye-right-brow",
+            "d": "M205 118C202.51 119.66 198.9 121.44 195.06 120.7C189.83 119.68 188.43 114.81 184.41 115.11C180.47 115.41 179.86 120.74 175.26 121.37C169.45 122.15 165.48 118.46 165 118",
+            "opacity": 0
+          },
+          "eye-right-pupil-shape": {
+            "id": "eyes-sleepy-half-lid--eye-right-pupil",
+            "d": "M185 156C189.97 156 194 161.37 194 168C194 174.63 189.97 180 185 180C180.03 180 176 174.63 176 168C176 161.37 180.03 156 185 156Z",
+            "opacity": 1
+          }
+        }
+      },
+      {
+        "name": "asleep",
+        "group": "eyes-asleep",
+        "source": "pic 1",
+        "targets": {
+          "eye-left-white-shape": {
+            "id": "eyes-asleep--eye-left-white",
+            "d": "M115 133C125.49 133 134 144.19 134 158C134 171.81 125.49 183 115 183C104.51 183 96 171.81 96 158C96 144.19 104.51 133 115 133Z",
+            "opacity": 1
+          },
+          "eye-left-lid-clip-shape": {
+            "id": "eyes-asleep--eye-left-lid-clip",
+            "d": "M115 131C126.6 131 136 143.09 136 158C136 172.91 126.6 185 115 185C103.4 185 94 172.91 94 158C94 143.09 103.4 131 115 131Z",
+            "opacity": 1
+          },
+          "eye-left-lid-skin": {
+            "id": "eyes-asleep--eye-left-lid-skin",
+            "d": "M83 124L147 124L147 161.76C125.67 175.41 104.33 175.41 83 161.76ZM147 192L83 192L83 158.76C104.33 172.41 125.67 172.41 147 158.76Z",
+            "opacity": 1
+          },
+          "eye-left-lash": {
+            "id": "eyes-asleep--eye-left-lash",
+            "d": "M99.17 168.26C101.67 171.22 104.9 172.75 108.33 173.38C111.77 174.01 115.41 173.74 118.75 173.09C122.08 172.45 125.1 171.44 127.29 170.59C129.47 169.74 130.83 169.05 130.83 169.05",
+            "opacity": 1
+          },
+          "eye-left-brow-shape": {
+            "id": "eyes-asleep--eye-left-brow",
+            "d": "M95 118C97.49 119.66 101.1 121.44 104.94 120.7C110.17 119.68 111.57 114.81 115.59 115.11C119.53 115.41 120.14 120.74 124.74 121.37C130.55 122.15 134.52 118.46 135 118",
+            "opacity": 0
+          },
+          "eye-left-pupil-shape": {
+            "id": "eyes-asleep--eye-left-pupil",
+            "d": "M115 150C119.97 150 124 155.37 124 162C124 168.63 119.97 174 115 174C110.03 174 106 168.63 106 162C106 155.37 110.03 150 115 150Z",
+            "opacity": 1
+          },
+          "eye-right-white-shape": {
+            "id": "eyes-asleep--eye-right-white",
+            "d": "M185 133C174.51 133 166 144.19 166 158C166 171.81 174.51 183 185 183C195.49 183 204 171.81 204 158C204 144.19 195.49 133 185 133Z",
+            "opacity": 1
+          },
+          "eye-right-lid-clip-shape": {
+            "id": "eyes-asleep--eye-right-lid-clip",
+            "d": "M185 131C173.4 131 164 143.09 164 158C164 172.91 173.4 185 185 185C196.6 185 206 172.91 206 158C206 143.09 196.6 131 185 131Z",
+            "opacity": 1
+          },
+          "eye-right-lid-skin": {
+            "id": "eyes-asleep--eye-right-lid-skin",
+            "d": "M217 124L153 124L153 161.76C174.33 175.41 195.67 175.41 217 161.76ZM153 192L217 192L217 158.76C195.67 172.41 174.33 172.41 153 158.76Z",
+            "opacity": 1
+          },
+          "eye-right-lash": {
+            "id": "eyes-asleep--eye-right-lash",
+            "d": "M200.83 168.26C198.33 171.22 195.1 172.75 191.67 173.38C188.23 174.01 184.59 173.74 181.25 173.09C177.92 172.45 174.9 171.44 172.71 170.59C170.53 169.74 169.17 169.05 169.17 169.05",
+            "opacity": 1
+          },
+          "eye-right-brow-shape": {
+            "id": "eyes-asleep--eye-right-brow",
+            "d": "M205 118C202.51 119.66 198.9 121.44 195.06 120.7C189.83 119.68 188.43 114.81 184.41 115.11C180.47 115.41 179.86 120.74 175.26 121.37C169.45 122.15 165.48 118.46 165 118",
+            "opacity": 0
+          },
+          "eye-right-pupil-shape": {
+            "id": "eyes-asleep--eye-right-pupil",
+            "d": "M185 150C189.97 150 194 155.37 194 162C194 168.63 189.97 174 185 174C180.03 174 176 168.63 176 162C176 155.37 180.03 150 185 150Z",
+            "opacity": 1
+          }
+        }
+      },
+      {
+        "name": "angry",
+        "group": "eyes-angry",
+        "source": "Group 7524 (brows)",
+        "targets": {
+          "eye-left-white-shape": {
+            "id": "eyes-angry--eye-left-white",
+            "d": "M115 133C125.49 133 134 144.19 134 158C134 171.81 125.49 183 115 183C104.51 183 96 171.81 96 158C96 144.19 104.51 133 115 133Z",
+            "opacity": 1
+          },
+          "eye-left-lid-clip-shape": {
+            "id": "eyes-angry--eye-left-lid-clip",
+            "d": "M115 131C126.6 131 136 143.09 136 158C136 172.91 126.6 185 115 185C103.4 185 94 172.91 94 158C94 143.09 103.4 131 115 131Z",
+            "opacity": 1
+          },
+          "eye-left-lid-skin": {
+            "id": "eyes-angry--eye-left-lid-skin",
+            "d": "M83 124L147 124L147 153.68C125.67 151.29 104.33 143.44 83 130.13ZM147 192L83 192L83 187C104.33 187 125.67 187 147 187Z",
+            "opacity": 1
+          },
+          "eye-left-lash": {
+            "id": "eyes-angry--eye-left-lash",
+            "d": "M101.56 140.33C104.21 141.59 106.85 142.76 109.5 143.86C112.15 144.95 114.79 145.95 117.44 146.87C120.09 147.8 122.74 148.64 125.38 149.39C128.03 150.14 130.68 150.81 133.33 151.4",
+            "opacity": 1
+          },
+          "eye-left-brow-shape": {
+            "id": "eyes-angry--eye-left-brow",
+            "d": "M94.98 116.82C96.83 119.17 99.71 121.98 103.6 122.46C108.89 123.1 111.73 118.91 115.46 120.44C119.11 121.94 118.04 127.2 122.22 129.21C127.5 131.76 132.42 129.47 133.02 129.18",
+            "opacity": 1
+          },
+          "eye-left-pupil-shape": {
+            "id": "eyes-angry--eye-left-pupil",
+            "d": "M115 149C119.97 149 124 154.37 124 161C124 167.63 119.97 173 115 173C110.03 173 106 167.63 106 161C106 154.37 110.03 149 115 149Z",
+            "opacity": 1
+          },
+          "eye-right-white-shape": {
+            "id": "eyes-angry--eye-right-white",
+            "d": "M185 133C174.51 133 166 144.19 166 158C166 171.81 174.51 183 185 183C195.49 183 204 171.81 204 158C204 144.19 195.49 133 185 133Z",
+            "opacity": 1
+          },
+          "eye-right-lid-clip-shape": {
+            "id": "eyes-angry--eye-right-lid-clip",
+            "d": "M185 131C173.4 131 164 143.09 164 158C164 172.91 173.4 185 185 185C196.6 185 206 172.91 206 158C206 143.09 196.6 131 185 131Z",
+            "opacity": 1
+          },
+          "eye-right-lid-skin": {
+            "id": "eyes-angry--eye-right-lid-skin",
+            "d": "M217 124L153 124L153 153.68C174.33 151.29 195.67 143.44 217 130.13ZM153 192L217 192L217 187C195.67 187 174.33 187 153 187Z",
+            "opacity": 1
+          },
+          "eye-right-lash": {
+            "id": "eyes-angry--eye-right-lash",
+            "d": "M198.44 140.33C195.79 141.59 193.15 142.76 190.5 143.86C187.85 144.95 185.21 145.95 182.56 146.87C179.91 147.8 177.26 148.64 174.62 149.39C171.97 150.14 169.32 150.81 166.67 151.4",
+            "opacity": 1
+          },
+          "eye-right-brow-shape": {
+            "id": "eyes-angry--eye-right-brow",
+            "d": "M205.02 116.82C203.17 119.17 200.29 121.98 196.4 122.46C191.11 123.1 188.27 118.91 184.54 120.44C180.89 121.94 181.96 127.2 177.78 129.21C172.5 131.76 167.58 129.47 166.98 129.18",
+            "opacity": 1
+          },
+          "eye-right-pupil-shape": {
+            "id": "eyes-angry--eye-right-pupil",
+            "d": "M185 149C189.97 149 194 154.37 194 161C194 167.63 189.97 173 185 173C180.03 173 176 167.63 176 161C176 154.37 180.03 149 185 149Z",
+            "opacity": 1
+          }
+        }
+      },
+      {
+        "name": "surprised-wide",
+        "group": "eyes-surprised-wide",
+        "source": "pic 4",
+        "targets": {
+          "eye-left-white-shape": {
+            "id": "eyes-surprised-wide--eye-left-white",
+            "d": "M115 131.65C129.55 131.65 141.35 143.45 141.35 158C141.35 172.55 129.55 184.35 115 184.35C100.45 184.35 88.65 172.55 88.65 158C88.65 143.45 100.45 131.65 115 131.65Z",
+            "opacity": 1
+          },
+          "eye-left-lid-clip-shape": {
+            "id": "eyes-surprised-wide--eye-left-lid-clip",
+            "d": "M115 129.65C130.66 129.65 143.35 142.34 143.35 158C143.35 173.66 130.66 186.35 115 186.35C99.34 186.35 86.65 173.66 86.65 158C86.65 142.34 99.34 129.65 115 129.65Z",
+            "opacity": 1
+          },
+          "eye-left-lid-skin": {
+            "id": "eyes-surprised-wide--eye-left-lid-skin",
+            "d": "M83 124L147 124L147 127.65C125.67 127.65 104.33 127.65 83 127.65ZM147 192L83 192L83 188.35C104.33 188.35 125.67 188.35 147 188.35Z",
+            "opacity": 1
+          },
+          "eye-left-lash": {
+            "id": "eyes-surprised-wide--eye-left-lash",
+            "d": "M97.98 169.1C100.81 170.07 103.65 170.79 106.49 171.28C109.33 171.76 112.16 172 115 172C117.84 172 120.67 171.76 123.51 171.28C126.35 170.79 129.19 170.07 132.02 169.1",
+            "opacity": 0
+          },
+          "eye-left-brow-shape": {
+            "id": "eyes-surprised-wide--eye-left-brow",
+            "d": "M95 118C97.49 119.66 101.1 121.44 104.94 120.7C110.17 119.68 111.57 114.81 115.59 115.11C119.53 115.41 120.14 120.74 124.74 121.37C130.55 122.15 134.52 118.46 135 118",
+            "opacity": 0
+          },
+          "eye-left-pupil-shape": {
+            "id": "eyes-surprised-wide--eye-left-pupil",
+            "d": "M115 147.5C119.42 147.5 123 152.2 123 158C123 163.8 119.42 168.5 115 168.5C110.58 168.5 107 163.8 107 158C107 152.2 110.58 147.5 115 147.5Z",
+            "opacity": 1
+          },
+          "eye-right-white-shape": {
+            "id": "eyes-surprised-wide--eye-right-white",
+            "d": "M185 131.65C170.45 131.65 158.65 143.45 158.65 158C158.65 172.55 170.45 184.35 185 184.35C199.55 184.35 211.35 172.55 211.35 158C211.35 143.45 199.55 131.65 185 131.65Z",
+            "opacity": 1
+          },
+          "eye-right-lid-clip-shape": {
+            "id": "eyes-surprised-wide--eye-right-lid-clip",
+            "d": "M185 129.65C169.34 129.65 156.65 142.34 156.65 158C156.65 173.66 169.34 186.35 185 186.35C200.66 186.35 213.35 173.66 213.35 158C213.35 142.34 200.66 129.65 185 129.65Z",
+            "opacity": 1
+          },
+          "eye-right-lid-skin": {
+            "id": "eyes-surprised-wide--eye-right-lid-skin",
+            "d": "M217 124L153 124L153 127.65C174.33 127.65 195.67 127.65 217 127.65ZM153 192L217 192L217 188.35C195.67 188.35 174.33 188.35 153 188.35Z",
+            "opacity": 1
+          },
+          "eye-right-lash": {
+            "id": "eyes-surprised-wide--eye-right-lash",
+            "d": "M202.02 169.1C199.19 170.07 196.35 170.79 193.51 171.28C190.67 171.76 187.84 172 185 172C182.16 172 179.33 171.76 176.49 171.28C173.65 170.79 170.81 170.07 167.98 169.1",
+            "opacity": 0
+          },
+          "eye-right-brow-shape": {
+            "id": "eyes-surprised-wide--eye-right-brow",
+            "d": "M205 118C202.51 119.66 198.9 121.44 195.06 120.7C189.83 119.68 188.43 114.81 184.41 115.11C180.47 115.41 179.86 120.74 175.26 121.37C169.45 122.15 165.48 118.46 165 118",
+            "opacity": 0
+          },
+          "eye-right-pupil-shape": {
+            "id": "eyes-surprised-wide--eye-right-pupil",
+            "d": "M185 147.5C189.42 147.5 193 152.2 193 158C193 163.8 189.42 168.5 185 168.5C180.58 168.5 177 163.8 177 158C177 152.2 180.58 147.5 185 147.5Z",
+            "opacity": 1
+          }
+        }
+      },
+      {
+        "name": "squint",
+        "group": "eyes-squint",
+        "targets": {
+          "eye-left-white-shape": {
+            "id": "eyes-squint--eye-left-white",
+            "d": "M115 133C125.49 133 134 144.19 134 158C134 171.81 125.49 183 115 183C104.51 183 96 171.81 96 158C96 144.19 104.51 133 115 133Z",
+            "opacity": 1
+          },
+          "eye-left-lid-clip-shape": {
+            "id": "eyes-squint--eye-left-lid-clip",
+            "d": "M115 131C126.6 131 136 143.09 136 158C136 172.91 126.6 185 115 185C103.4 185 94 172.91 94 158C94 143.09 103.4 131 115 131Z",
+            "opacity": 1
+          },
+          "eye-left-lid-skin": {
+            "id": "eyes-squint--eye-left-lid-skin",
+            "d": "M83 124L147 124L147 142.81C125.67 153.73 104.33 153.73 83 142.81ZM147 192L83 192L83 179.29C104.33 162.9 125.67 162.9 147 179.29Z",
+            "opacity": 1
+          },
+          "eye-left-lash": {
+            "id": "eyes-squint--eye-left-lash",
+            "d": "M97.42 148.53C100.35 149.35 103.28 149.97 106.21 150.38C109.14 150.79 112.07 151 115 151C117.93 151 120.86 150.79 123.79 150.38C126.72 149.97 129.65 149.35 132.58 148.53",
+            "opacity": 1
+          },
+          "eye-left-brow-shape": {
+            "id": "eyes-squint--eye-left-brow",
+            "d": "M95 118C97.49 119.66 101.1 121.44 104.94 120.7C110.17 119.68 111.57 114.81 115.59 115.11C119.53 115.41 120.14 120.74 124.74 121.37C130.55 122.15 134.52 118.46 135 118",
+            "opacity": 0
+          },
+          "eye-left-pupil-shape": {
+            "id": "eyes-squint--eye-left-pupil",
+            "d": "M115 147C119.97 147 124 152.37 124 159C124 165.63 119.97 171 115 171C110.03 171 106 165.63 106 159C106 152.37 110.03 147 115 147Z",
+            "opacity": 1
+          },
+          "eye-right-white-shape": {
+            "id": "eyes-squint--eye-right-white",
+            "d": "M185 133C174.51 133 166 144.19 166 158C166 171.81 174.51 183 185 183C195.49 183 204 171.81 204 158C204 144.19 195.49 133 185 133Z",
+            "opacity": 1
+          },
+          "eye-right-lid-clip-shape": {
+            "id": "eyes-squint--eye-right-lid-clip",
+            "d": "M185 131C173.4 131 164 143.09 164 158C164 172.91 173.4 185 185 185C196.6 185 206 172.91 206 158C206 143.09 196.6 131 185 131Z",
+            "opacity": 1
+          },
+          "eye-right-lid-skin": {
+            "id": "eyes-squint--eye-right-lid-skin",
+            "d": "M217 124L153 124L153 142.81C174.33 153.73 195.67 153.73 217 142.81ZM153 192L217 192L217 179.29C195.67 162.9 174.33 162.9 153 179.29Z",
+            "opacity": 1
+          },
+          "eye-right-lash": {
+            "id": "eyes-squint--eye-right-lash",
+            "d": "M202.58 148.53C199.65 149.35 196.72 149.97 193.79 150.38C190.86 150.79 187.93 151 185 151C182.07 151 179.14 150.79 176.21 150.38C173.28 149.97 170.35 149.35 167.42 148.53",
+            "opacity": 1
+          },
+          "eye-right-brow-shape": {
+            "id": "eyes-squint--eye-right-brow",
+            "d": "M205 118C202.51 119.66 198.9 121.44 195.06 120.7C189.83 119.68 188.43 114.81 184.41 115.11C180.47 115.41 179.86 120.74 175.26 121.37C169.45 122.15 165.48 118.46 165 118",
+            "opacity": 0
+          },
+          "eye-right-pupil-shape": {
+            "id": "eyes-squint--eye-right-pupil",
+            "d": "M185 147C189.97 147 194 152.37 194 159C194 165.63 189.97 171 185 171C180.03 171 176 165.63 176 159C176 152.37 180.03 147 185 147Z",
+            "opacity": 1
+          }
+        }
+      },
+      {
+        "name": "scrunched",
+        "group": "eyes-scrunched",
+        "source": "Group 7524",
+        "extra": true,
+        "targets": {
+          "eye-left-white-shape": {
+            "id": "eyes-scrunched--eye-left-white",
+            "d": "M115 133C125.49 133 134 144.19 134 158C134 171.81 125.49 183 115 183C104.51 183 96 171.81 96 158C96 144.19 104.51 133 115 133Z",
+            "opacity": 1
+          },
+          "eye-left-lid-clip-shape": {
+            "id": "eyes-scrunched--eye-left-lid-clip",
+            "d": "M115 131C126.6 131 136 143.09 136 158C136 172.91 126.6 185 115 185C103.4 185 94 172.91 94 158C94 143.09 103.4 131 115 131Z",
+            "opacity": 1
+          },
+          "eye-left-lid-skin": {
+            "id": "eyes-scrunched--eye-left-lid-skin",
+            "d": "M83 124L147 124L147 161.76C125.67 175.41 104.33 175.41 83 161.76ZM147 192L83 192L83 158.76C104.33 172.41 125.67 172.41 147 158.76Z",
+            "opacity": 1
+          },
+          "eye-left-lash": {
+            "id": "eyes-scrunched--eye-left-lash",
+            "d": "M101.13 149.33C104.21 151.18 109.09 153.61 115.52 154.86C120.94 155.91 125.6 155.77 128.87 155.41C126.26 156.21 122.18 157.8 118.01 161.07C113.65 164.49 111.07 168.26 109.69 170.67",
+            "opacity": 1
+          },
+          "eye-left-brow-shape": {
+            "id": "eyes-scrunched--eye-left-brow",
+            "d": "M96.46 117.51C98.14 119.98 100.82 122.99 104.66 123.73C109.89 124.75 113.02 120.76 116.63 122.55C120.17 124.3 118.74 129.47 122.77 131.77C127.86 134.68 132.92 132.74 133.54 132.49",
+            "opacity": 1
+          },
+          "eye-left-pupil-shape": {
+            "id": "eyes-scrunched--eye-left-pupil",
+            "d": "M115 148C119.97 148 124 153.37 124 160C124 166.63 119.97 172 115 172C110.03 172 106 166.63 106 160C106 153.37 110.03 148 115 148Z",
+            "opacity": 1
+          },
+          "eye-right-white-shape": {
+            "id": "eyes-scrunched--eye-right-white",
+            "d": "M185 133C174.51 133 166 144.19 166 158C166 171.81 174.51 183 185 183C195.49 183 204 171.81 204 158C204 144.19 195.49 133 185 133Z",
+            "opacity": 1
+          },
+          "eye-right-lid-clip-shape": {
+            "id": "eyes-scrunched--eye-right-lid-clip",
+            "d": "M185 131C173.4 131 164 143.09 164 158C164 172.91 173.4 185 185 185C196.6 185 206 172.91 206 158C206 143.09 196.6 131 185 131Z",
+            "opacity": 1
+          },
+          "eye-right-lid-skin": {
+            "id": "eyes-scrunched--eye-right-lid-skin",
+            "d": "M217 124L153 124L153 161.76C174.33 175.41 195.67 175.41 217 161.76ZM153 192L217 192L217 158.76C195.67 172.41 174.33 172.41 153 158.76Z",
+            "opacity": 1
+          },
+          "eye-right-lash": {
+            "id": "eyes-scrunched--eye-right-lash",
+            "d": "M198.87 149.33C195.79 151.18 190.91 153.61 184.48 154.86C179.06 155.91 174.4 155.77 171.13 155.41C173.74 156.21 177.82 157.8 181.99 161.07C186.35 164.49 188.93 168.26 190.31 170.67",
+            "opacity": 1
+          },
+          "eye-right-brow-shape": {
+            "id": "eyes-scrunched--eye-right-brow",
+            "d": "M203.54 117.51C201.86 119.98 199.18 122.99 195.34 123.73C190.11 124.75 186.98 120.76 183.37 122.55C179.83 124.3 181.26 129.47 177.23 131.77C172.14 134.68 167.08 132.74 166.46 132.49",
+            "opacity": 1
+          },
+          "eye-right-pupil-shape": {
+            "id": "eyes-scrunched--eye-right-pupil",
+            "d": "M185 148C189.97 148 194 153.37 194 160C194 166.63 189.97 172 185 172C180.03 172 176 166.63 176 160C176 153.37 180.03 148 185 148Z",
+            "opacity": 1
+          }
+        }
+      }
+    ],
+    "mouth": [
+      {
+        "name": "smile",
+        "group": "mouth-smile",
+        "source": "pic5",
+        "targets": {
+          "mouth-shape": {
+            "id": "mouth-smile--mouth",
+            "d": "M123.02 210.41C123.02 210.41 128.95 216.82 139.49 220.3C150.03 223.78 162.12 224.26 177.05 210.34C179.2 208.34 182.2 211.55 180.05 213.55C165.12 227.48 148.66 227.96 138.11 224.48C127.57 221 119.87 213.48 119.87 213.48C117.82 211.39 120.97 208.31 123.02 210.41Z",
+            "opacity": 1
+          },
+          "mouth-tongue": {
+            "id": "mouth-smile--tongue",
+            "d": "M134.26 217.99C151.19 217.99 164.91 228.11 164.91 240.6C164.91 253.09 151.19 263.21 134.26 263.21C117.33 263.21 103.61 253.09 103.61 240.6C103.61 228.11 117.33 217.99 134.26 217.99Z",
+            "opacity": 0
+          }
+        }
+      },
+      {
+        "name": "open-shout",
+        "group": "mouth-open-shout",
+        "source": "Group-1 / pic 4",
+        "targets": {
+          "mouth-shape": {
+            "id": "mouth-open-shout--mouth",
+            "d": "M128.14 192.53C134.24 190.32 137.75 198.93 149.66 199.96C162.88 201.11 168.71 191.39 174.83 194.74C181.6 198.45 181.85 214.33 176.41 225.66C171.83 235.19 161.39 244.52 147.84 243.79C135.31 243.11 125.32 234.12 121.62 223.31C117.42 211.05 120.71 195.21 128.14 192.53Z",
+            "opacity": 1
+          },
+          "mouth-tongue": {
+            "id": "mouth-open-shout--tongue",
+            "d": "M134.26 217.99C151.19 217.99 164.91 228.11 164.91 240.6C164.91 253.09 151.19 263.21 134.26 263.21C117.33 263.21 103.61 253.09 103.61 240.6C103.61 228.11 117.33 217.99 134.26 217.99Z",
+            "opacity": 1
+          }
+        }
+      },
+      {
+        "name": "flat",
+        "group": "mouth-flat",
+        "targets": {
+          "mouth-shape": {
+            "id": "mouth-flat--mouth",
+            "d": "M134 215.8C139.34 215.8 144.67 215.8 150 215.8C155.33 215.8 160.67 215.8 166 215.8C168.93 215.8 168.93 220.2 166 220.2C160.67 220.2 155.33 220.2 150 220.2C144.67 220.2 139.34 220.2 134 220.2C131.07 220.2 131.07 215.8 134 215.8Z",
+            "opacity": 1
+          },
+          "mouth-tongue": {
+            "id": "mouth-flat--tongue",
+            "d": "M134.26 217.99C151.19 217.99 164.91 228.11 164.91 240.6C164.91 253.09 151.19 263.21 134.26 263.21C117.33 263.21 103.61 253.09 103.61 240.6C103.61 228.11 117.33 217.99 134.26 217.99Z",
+            "opacity": 0
+          }
+        }
+      },
+      {
+        "name": "small-o",
+        "group": "mouth-small-o",
+        "targets": {
+          "mouth-shape": {
+            "id": "mouth-small-o--mouth",
+            "d": "M141.34 212C143.13 208.29 146.43 206 150 206C153.57 206 156.87 208.29 158.66 212C160.45 215.71 160.45 220.29 158.66 224C156.87 227.71 153.57 230 150 230C146.43 230 143.13 227.71 141.34 224C139.55 220.29 139.55 215.71 141.34 212Z",
+            "opacity": 1
+          },
+          "mouth-tongue": {
+            "id": "mouth-small-o--tongue",
+            "d": "M134.26 217.99C151.19 217.99 164.91 228.11 164.91 240.6C164.91 253.09 151.19 263.21 134.26 263.21C117.33 263.21 103.61 253.09 103.61 240.6C103.61 228.11 117.33 217.99 134.26 217.99Z",
+            "opacity": 0
+          }
+        }
+      },
+      {
+        "name": "sleepy",
+        "group": "mouth-sleepy",
+        "source": "pic 1",
+        "targets": {
+          "mouth-shape": {
+            "id": "mouth-sleepy--mouth",
+            "d": "M143.77 216.73C144.59 211.85 146.69 207.14 149.41 205.62C150.71 204.89 152.18 204.86 153.42 205.37C154.66 205.89 155.67 206.94 156.05 208.38C156.94 211.72 156.8 219.09 155.24 224.52C153.67 229.94 150.67 233.41 145.82 228.91C143.42 226.68 142.96 221.62 143.77 216.73Z",
+            "opacity": 1
+          },
+          "mouth-tongue": {
+            "id": "mouth-sleepy--tongue",
+            "d": "M134.26 217.99C151.19 217.99 164.91 228.11 164.91 240.6C164.91 253.09 151.19 263.21 134.26 263.21C117.33 263.21 103.61 253.09 103.61 240.6C103.61 228.11 117.33 217.99 134.26 217.99Z",
+            "opacity": 0
+          }
+        }
+      }
+    ]
+  },
+  "defaults": {
+    "eyes": "neutral",
+    "mouth": "smile"
+  }
+}

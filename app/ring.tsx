@@ -34,6 +34,7 @@ import { formatClock } from '@/utils/clockFormat';
 import { makeProblem, type MathLevel } from '@/utils/math';
 import { armWakeCheck, cancelAlarmNotifications, cancelRingAgain, rescheduleRepeatingAlarms } from '@/utils/notifications';
 import { recordAlarmCompletion } from '@/utils/rating';
+import { needsPaywall } from '@/utils/revenueCat';
 import { setAlarmVolume, stopAlarmSound } from '@/utils/sounds';
 import { createStepDetector } from '@/utils/stepDetector';
 import { getAlarms, logWake } from '@/utils/storage';
@@ -166,11 +167,12 @@ type Screen = 'ring' | 'walk' | 'math';
 
 export default function RingScreen() {
     // steps / math params: dev "Test game" overrides
-    const { alarmId, steps: stepsParam, math: mathParam } = useLocalSearchParams<{
+    const { alarmId, steps: stepsParam, math: mathParam, again } = useLocalSearchParams<{
         alarmId?: string;
         label?: string;
         steps?: string;
         math?: string;
+        again?: string; // a replay game (ring-again or a No): the alarm's next occurrence is already armed
     }>();
     const { alarms, updateAlarm, refreshAlarms } = useAlarms();
     // A No on "Still awake?" may have just made this alarm's game harder in storage: play that one.
@@ -205,9 +207,10 @@ export default function RingScreen() {
     // notifications piling up on top. (Not on mount: the screen can open while they sleep.)
     const engaged = useCallback(() => {
         if (!alarmId) return;
-        cancelAlarmNotifications(alarmId).catch(() => undefined);
-        cancelRingAgain(alarmId); // when this game is the ring-again after an unanswered "Still awake?"
-    }, [alarmId]);
+        // A replay's own ringing is the ring-again; the alarm's notifications are already its next occurrence.
+        if (again) cancelRingAgain(alarmId);
+        else cancelAlarmNotifications(alarmId).catch(() => undefined);
+    }, [alarmId, again]);
 
     /** Re-arm the next occurrence, or switch a one-time alarm off. Returns the stored alarm. */
     const settleAlarm = useCallback(async () => {
@@ -227,11 +230,14 @@ export default function RingScreen() {
     const finish = useCallback(async () => {
         stopAlarmSound(); // no haptic here: the right answer already played Success
         const now = Date.now();
-        const log = await logWake(now).catch(err => console.error('Logging the wake failed:', err));
+        const [log, locked] = await Promise.all([
+            logWake(now).catch(err => console.error('Logging the wake failed:', err)),
+            needsPaywall().catch(() => false),
+        ]);
         // +1 only for the day's first wake: the streak counts days, so a second game today (a No on
-        // "Still awake?", a second alarm) adds nothing and gets no celebration.
+        // "Still awake?", a second alarm) adds nothing and gets no celebration. Not under the paywall either.
         const today = new Date(now).toDateString();
-        if (log && log.filter(at => new Date(at).toDateString() === today).length === 1) markPlusOne();
+        if (!locked && log && log.filter(at => new Date(at).toDateString() === today).length === 1) markPlusOne();
         router.dismissTo('/');
         try {
             const stored = await settleAlarm();
@@ -242,11 +248,21 @@ export default function RingScreen() {
         }
     }, [settleAlarm]);
 
+    // For someone already up (e.g. caught by a ring-again): a 2 s hold stops it without the game.
+    const exitEarly = useCallback(async () => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+        stopAlarmSound();
+        posthog.capture('alarm_exited_early');
+        engaged();
+        router.dismissTo('/');
+        if (!again) await settleAlarm().catch(() => undefined);
+    }, [engaged, again, settleAlarm]);
+
     const toMath = useCallback(() => go('math'), [go]);
 
     const render = (k: Screen): ReactNode => {
         if (k === 'ring') {
-            return <Ringing at={shownAt} onWalk={() => go('walk')} />;
+            return <Ringing at={shownAt} onWalk={() => go('walk')} onExit={exitEarly} />;
         }
         if (k === 'walk') {
             const skip = () => {
@@ -254,9 +270,9 @@ export default function RingScreen() {
                 engaged();
                 toMath();
             };
-            return <WalkMission goal={goal} onFirstStep={engaged} onDone={toMath} onSkip={skip} />;
+            return <WalkMission goal={goal} onFirstStep={engaged} onDone={toMath} onSkip={skip} ting />;
         }
-        return <MathMission level={mathLevel} onDone={finish} />;
+        return <MathMission level={mathLevel} onDone={finish} ting />;
     };
 
     return (
@@ -274,7 +290,7 @@ export default function RingScreen() {
 }
 
 /** It rings: the time, Wakey rattling and ringing his bells in bursts, one button. */
-function Ringing({ at, onWalk }: { at: Date; onWalk: () => void }) {
+function Ringing({ at, onWalk, onExit }: { at: Date; onWalk: () => void; onExit: () => void }) {
     const { t } = useLocale();
     const { time, ap } = formatClock(at.getHours(), at.getMinutes());
     // Each rise of `ring` is one burst: a burst every 1.1 s.
@@ -301,6 +317,9 @@ function Ringing({ at, onWalk }: { at: Date; onWalk: () => void }) {
                         onWalk();
                     }}
                 />
+                <Pressable style={styles.skip} onLongPress={onExit} delayLongPress={2000} accessibilityRole="button" accessibilityHint={t('ring.alreadyUp')} hitSlop={8}>
+                    <Text style={styles.skipText}>{t('ring.alreadyUp')}</Text>
+                </Pressable>
             </View>
         </View>
     );
@@ -338,7 +357,8 @@ const CIRC = 2 * Math.PI * R;
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
 /** Walk with Wakey: he walks while your steps count, the ring closes, the alarm gets quieter. */
-export function WalkMission({ goal, onFirstStep, onDone, onSkip }: { goal: number; onFirstStep: () => void; onDone: () => void; onSkip?: () => void }) {
+/** ting: play the success sound (the alarm flow only; the app plays through the silent switch, the onboarding demo must not). */
+export function WalkMission({ goal, onFirstStep, onDone, onSkip, ting = false }: { goal: number; onFirstStep: () => void; onDone: () => void; onSkip?: () => void; ting?: boolean }) {
     const { t } = useLocale();
     const steps = useSteps();
     const moving = useMoving();
@@ -357,10 +377,10 @@ export function WalkMission({ goal, onFirstStep, onDone, onSkip }: { goal: numbe
     useEffect(() => {
         if (!finished) return;
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-        sfx('ting');
+        if (ting) sfx('ting');
         const timer = setTimeout(() => onDoneRef.current(), WALK_DONE_MS);
         return () => clearTimeout(timer);
-    }, [finished]);
+    }, [finished, ting]);
 
     const started = useRef(false);
     useEffect(() => {
@@ -447,7 +467,7 @@ export function WalkMission({ goal, onFirstStep, onDone, onSkip }: { goal: numbe
 const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'del'] as const;
 
 /** Help Wakey count: a sum, an answer box, a number pad, Check. count: problems to solve (the onboarding demo uses 1). */
-export function MathMission({ level, onDone, count = MATH_PROBLEMS }: { level: MathLevel; onDone: () => void; count?: number }) {
+export function MathMission({ level, onDone, count = MATH_PROBLEMS, ting = false }: { level: MathLevel; onDone: () => void; count?: number; ting?: boolean }) {
     const { t } = useLocale();
     const reduced = useReducedMotion();
     const [problem, setProblem] = useState(() => makeProblem(level));
@@ -491,7 +511,7 @@ export function MathMission({ level, onDone, count = MATH_PROBLEMS }: { level: M
             return;
         }
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-        sfx('ting');
+        if (ting) sfx('ting');
         setRight(true);
         setMood('happy');
         later(RIGHT_MS, () => {

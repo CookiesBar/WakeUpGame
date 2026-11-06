@@ -1,6 +1,8 @@
+import WheelPicker from '@/components/WheelPicker';
 import { W, WFont } from '@/constants/white';
 import { useAlarms } from '@/contexts/AlarmContext';
 import { LanguagePref, useLocale } from '@/contexts/LocaleContext';
+import { LANGUAGE_NAMES, SUPPORTED_LOCALES } from '@/i18n';
 import { armWakeCheck, scheduleAlarmNotification } from '@/utils/notifications';
 import { manageSubscription } from '@/utils/revenueCat';
 import { getAlarms, saveAlarm } from '@/utils/storage';
@@ -11,14 +13,14 @@ import * as Notifications from 'expo-notifications';
 import { router } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import React, { useEffect, useRef, useState } from 'react';
-import { Alert, AppState, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, AppState, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 const TERMS = 'https://resonant-stock-52e.notion.site/Terms-of-Service-3e187bf678be806496d7c7f1ef9d61b0';
 const PRIVACY = 'https://resonant-stock-52e.notion.site/Privacy-Policy-EN-43a8162e83de4eb58b61ee67a8dddcd2';
 
-const PREFS: LanguagePref[] = ['system', 'en', 'es', 'sv', 'de'];
-const LANG_NAME: Record<Exclude<LanguagePref, 'system'>, string> = { en: 'English', es: 'Español', sv: 'Svenska', de: 'Deutsch' };
+const PREFS: LanguagePref[] = ['system', ...SUPPORTED_LOCALES];
+const WHEEL_ROW = 40;
 
 type IconName = keyof typeof Ionicons.glyphMap;
 
@@ -59,7 +61,7 @@ export default function SettingsScreen() {
     const resetLevels = async () => {
         for (const alarm of await getAlarms()) await saveAlarm({ ...alarm, steps: undefined, mathLevel: undefined });
         await refreshAlarms();
-        Alert.alert('Done', 'All alarms back to 50 steps + medium math.');
+        Alert.alert('Done', 'All alarms back to 50 steps + easy math.');
     };
 
     // Re-read the permission whenever the user comes back from system Settings.
@@ -78,7 +80,13 @@ export default function SettingsScreen() {
         getAlarms().then(alarms => Promise.all(alarms.filter(a => a.enabled).map(scheduleAlarmNotification))).catch(() => {});
     }, [locale]);
 
-    const name = (p: LanguagePref) => (p === 'system' ? t('settings.system') : LANG_NAME[p]);
+    const name = (p: LanguagePref) => (p === 'system' ? t('settings.system') : LANGUAGE_NAMES[p]);
+    // The language wheel: rolls freely, applies on Done (re-rendering the app mid-roll would be jarring).
+    const [picking, setPicking] = useState<number | null>(null);
+    const done = () => {
+        if (picking !== null) setPref(PREFS[picking]);
+        setPicking(null);
+    };
     const open = (url: string) => WebBrowser.openBrowserAsync(url).catch(() => {});
 
     return (
@@ -93,11 +101,8 @@ export default function SettingsScreen() {
 
             <ScrollView showsVerticalScrollIndicator={false}>
                 <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>{t('settings.language')}</Text>
                     <View style={styles.listContainer}>
-                        {PREFS.map((p, i) => (
-                            <Row key={p} label={name(p)} icon={p === pref ? 'checkmark' : undefined} onPress={() => setPref(p)} last={i === PREFS.length - 1} />
-                        ))}
+                        <Row label={t('settings.language')} detail={name(pref)} icon="chevron-forward" onPress={() => setPicking(PREFS.indexOf(pref))} last />
                     </View>
                 </View>
 
@@ -132,7 +137,7 @@ export default function SettingsScreen() {
                             <View style={styles.listContainer}>
                                 <Row label="Play game" detail="20 steps, easy" icon="game-controller-outline" onPress={() => playGame({ steps: '20', math: '0' })} />
                                 <Row label="Play game" detail="100 steps, hard" icon="game-controller-outline" onPress={() => playGame({ steps: '100', math: '2' })} />
-                                <Row label="Still awake? check in 10 s" detail={alarms[0] ? `${alarms[0].steps ?? 50} st · math ${alarms[0].mathLevel ?? 1}` : undefined} icon="alarm-outline" onPress={testWakeCheck} />
+                                <Row label="Still awake? check in 10 s" detail={alarms[0] ? `${alarms[0].steps ?? 50} st · math ${alarms[0].mathLevel ?? 0}` : undefined} icon="alarm-outline" onPress={testWakeCheck} />
                                 <Row label="Reset game difficulty" icon="refresh" onPress={resetLevels} last />
                             </View>
                         </View>
@@ -147,6 +152,34 @@ export default function SettingsScreen() {
 
                 <Text style={styles.version}>v{Constants.expoConfig?.version}</Text>
             </ScrollView>
+
+            <Modal visible={picking !== null} transparent animationType="fade" onRequestClose={() => setPicking(null)}>
+                <Pressable style={styles.scrim} onPress={() => setPicking(null)} accessibilityLabel={t('common.cancel')} />
+                <View style={styles.sheet}>
+                    <View style={styles.sheetHeader}>
+                        <Text style={styles.headerTitle}>{t('settings.language')}</Text>
+                        <Pressable style={styles.save} onPress={done} accessibilityRole="button" hitSlop={8}>
+                            <Text style={styles.doneText}>{t('settings.done')}</Text>
+                        </Pressable>
+                    </View>
+                    <View style={styles.wheelCard}>
+                        <View style={styles.band} pointerEvents="none" />
+                        {picking !== null && (
+                            <WheelPicker
+                                data={PREFS.map(name)}
+                                selectedIndex={picking}
+                                onIndexChange={setPicking}
+                                infinite={false}
+                                itemHeight={WHEEL_ROW}
+                                style={styles.wheel}
+                                textStyle={styles.wheelText}
+                                colors={[W.ink, 'rgba(11,13,16,0.3)']}
+                                accessibilityLabel={t('settings.language')}
+                            />
+                        )}
+                    </View>
+                </View>
+            </Modal>
         </SafeAreaView>
     );
 }
@@ -172,4 +205,12 @@ const styles = StyleSheet.create({
     divider: { height: 1, backgroundColor: W.hair, marginLeft: 20 },
     version: { marginTop: 32, marginBottom: 48, fontFamily: WFont.medium, fontSize: 13, color: W.dim, textAlign: 'center' },
     bottomSpacer: { height: 48 },
+    scrim: { flex: 1, backgroundColor: 'rgba(0,0,0,0.3)' },
+    sheet: { backgroundColor: W.mist, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingHorizontal: 20, paddingBottom: 40 },
+    sheetHeader: { height: 60, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    doneText: { fontFamily: WFont.bold, fontSize: 17, color: W.blueText },
+    wheelCard: { borderRadius: 24, backgroundColor: W.paper, overflow: 'hidden', justifyContent: 'center' },
+    band: { position: 'absolute', left: 12, right: 12, top: '50%', height: WHEEL_ROW, marginTop: -WHEEL_ROW / 2, borderRadius: 10, backgroundColor: W.mist },
+    wheel: { width: '100%' },
+    wheelText: { fontFamily: WFont.semibold, fontSize: 22, letterSpacing: -0.22 },
 });
