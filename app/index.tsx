@@ -125,12 +125,8 @@ function Streak({ info }: { info: StreakInfo }) {
   // Always smiling: glancing around, eyes closed in a grin when tapped.
   const mood: Mood = tapped ? 'proud' : 'awake';
   const restIndex = info.week.indexOf('rest');
-  const note =
-    restIndex >= 0
-      ? t('home.restNote', { day: strings().days.short[(restIndex + 1) % 7] })
-      : info.nextMilestone
-        ? t('home.nextBadge', { count: info.nextMilestone - info.count, badge: info.nextMilestone })
-        : t('home.allBadges');
+  // Badges are out of this version (to be designed): the only note is a rest day used this week.
+  const note = restIndex >= 0 ? t('home.restNote', { day: strings().days.short[(restIndex + 1) % 7] }) : null;
 
   return (
     <View style={styles.card} accessibilityLabel={t('home.dayStreak')}>
@@ -141,7 +137,7 @@ function Streak({ info }: { info: StreakInfo }) {
             <Text style={styles.kickerText}>{t('home.dayStreak')}</Text>
           </View>
           <Text style={styles.count} accessibilityLabel={`${info.count} ${t('home.dayStreak')}`}>{info.count}</Text>
-          <Text style={styles.note}>{note}</Text>
+          {!!note && <Text style={styles.note}>{note}</Text>}
         </View>
         <Wakey
           head

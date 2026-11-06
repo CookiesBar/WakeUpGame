@@ -148,7 +148,6 @@ export default function PlusOne({ info, onClose }: { info: StreakInfo; onClose: 
     const rolling = useAnimatedStyle(() => ({ transform: [{ translateY: -ROLL_H * roll.value }] }));
     const plus = useAnimatedStyle(() => ({ opacity: roll.value, transform: [{ translateY: 12 * (1 - roll.value) }] }));
     const count = info.count;
-    const next = info.nextMilestone;
 
     return (
         <Animated.View style={[styles.overlay, { paddingTop: insets.top, paddingBottom: insets.bottom + 14 }, overlay]} accessibilityViewIsModal>
@@ -181,20 +180,6 @@ export default function PlusOne({ info, onClose }: { info: StreakInfo; onClose: 
                             }
                         >
                             <WeekDots info={info} todayLit={lit} todayRef={dotRef} />
-                            <View style={styles.hairline} />
-                            <View style={styles.badgeRow}>
-                                <View style={styles.badgeTile}>
-                                    <Flame size={20} />
-                                </View>
-                                <View style={styles.badgeText}>
-                                    <Text style={styles.badgeLine}>
-                                        {next ? t('home.nextBadge', { count: next - count, badge: next }) : t('home.allBadges')}
-                                    </Text>
-                                    <View style={styles.badgeTrack}>
-                                        <View style={[styles.badgeFill, { width: (next ? (count / next) * 100 : 100) + '%' }]} />
-                                    </View>
-                                </View>
-                            </View>
                         </View>
                         <Text style={styles.restNote}>{t('home.noRest')}</Text>
                     </Animated.View>
@@ -243,12 +228,5 @@ const styles = StyleSheet.create({
     },
     inARow: { fontFamily: WFont.semibold, fontSize: 20, lineHeight: 25, color: ON_DARK },
     weekCard: { alignSelf: 'stretch', marginTop: 28, backgroundColor: W.paper, borderRadius: 24, paddingHorizontal: 20, paddingVertical: 18, gap: 16 },
-    hairline: { height: 1, backgroundColor: W.hair },
-    badgeRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-    badgeTile: { width: 36, height: 36, borderRadius: 10, backgroundColor: W.sunSoft, alignItems: 'center', justifyContent: 'center' },
-    badgeText: { flex: 1, gap: 6 },
-    badgeLine: { fontFamily: WFont.semibold, fontSize: 15, lineHeight: 20, color: W.ink },
-    badgeTrack: { height: 6, borderRadius: 999, backgroundColor: W.hair, overflow: 'hidden' },
-    badgeFill: { height: '100%', borderRadius: 999, backgroundColor: W.sun },
     restNote: { marginTop: 14, fontFamily: WFont.medium, fontSize: 13, lineHeight: 18, color: ON_DARK, textAlign: 'center' },
 });
