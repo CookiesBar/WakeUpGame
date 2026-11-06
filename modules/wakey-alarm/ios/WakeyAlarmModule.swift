@@ -43,6 +43,32 @@ public class WakeyAlarmModule: Module {
       throw Exception(name: "Unsupported", description: "AlarmKit needs iOS 26")
     }
 
+    // A "Still awake?" link: Yes (the stop button) and No (opens the app). Both end the whole check.
+    AsyncFunction("scheduleCheck") { (id: String, epochMs: Double, title: String, yesText: String, noText: String, sound: String?, checkId: String) async throws in
+      #if canImport(AlarmKit)
+      if #available(iOS 26.0, *) {
+        try await WakeyAlarmKit.scheduleCheck(id: id, epochMs: epochMs, title: title, yesText: yesText, noText: noText, sound: sound, checkId: checkId)
+        return
+      }
+      #endif
+      throw Exception(name: "Unsupported", description: "AlarmKit needs iOS 26")
+    }
+
+    // Make alarm `id` part of check `checkId` (its ring-again chain), so a Yes or No on the check ends it too.
+    Function("linkToCheck") { (checkId: String, id: String) in
+      #if canImport(AlarmKit)
+      if #available(iOS 26.0, *) { WakeyAlarmKit.link(checkId, id) }
+      #endif
+    }
+
+    // Yes / No answers given on the alert since the last call, by check id ("yes" | "no"). Reading clears them.
+    Function("takeCheckAnswers") { () -> [String: String] in
+      #if canImport(AlarmKit)
+      if #available(iOS 26.0, *) { return WakeyAlarmKit.takeAnswers() }
+      #endif
+      return [:]
+    }
+
     Function("cancel") { (id: String) in
       #if canImport(AlarmKit)
       if #available(iOS 26.0, *) { WakeyAlarmKit.cancel(id: id) }
@@ -126,6 +152,67 @@ enum WakeyAlarmKit {
     try? AlarmManager.shared.cancel(id: uuid)
   }
 
+  // --- "Still awake?" ---
+  static let answersKey = "WakeyAlarm.checkAnswers"
+  static func linksKey(_ checkId: String) -> String { "WakeyAlarm.check:\(checkId)" }
+
+  static func scheduleCheck(id: String, epochMs: Double, title: String, yesText: String, noText: String, sound: String?, checkId: String) async throws {
+    guard let uuid = UUID(uuidString: id) else {
+      throw Exception(name: "InvalidId", description: "Not a UUID: \(id)")
+    }
+    let alert = AlarmPresentation.Alert(
+      title: "\(title)",
+      stopButton: AlarmButton(text: "\(yesText)", textColor: .white, systemImageName: "checkmark.circle"),
+      secondaryButton: AlarmButton(text: "\(noText)", textColor: .white, systemImageName: "moon.zzz"),
+      secondaryButtonBehavior: .custom
+    )
+    let attributes = AlarmAttributes<WakeyAlarmMetadata>(
+      presentation: AlarmPresentation(alert: alert),
+      metadata: WakeyAlarmMetadata(),
+      tintColor: Color(red: 0.157, green: 0.408, blue: 0.878) // Wakey blue #2868E0
+    )
+    let alertSound: AlertConfiguration.AlertSound = sound.map { .named($0) } ?? .default
+    let configuration = AlarmManager.AlarmConfiguration(
+      countdownDuration: nil,
+      schedule: .fixed(Date(timeIntervalSince1970: epochMs / 1000)),
+      attributes: attributes,
+      stopIntent: WakeyCheckYesIntent(checkId: checkId),
+      secondaryIntent: WakeyCheckNoIntent(checkId: checkId),
+      sound: alertSound
+    )
+    cancel(id: id)
+    _ = try await AlarmManager.shared.schedule(id: uuid, configuration: configuration)
+    // Remember the check's links, so one answer ends them all; a new check forgets an unread old answer.
+    link(checkId, id)
+    var answers = UserDefaults.standard.dictionary(forKey: answersKey) as? [String: String] ?? [:]
+    answers.removeValue(forKey: checkId)
+    UserDefaults.standard.set(answers, forKey: answersKey)
+  }
+
+  static func link(_ checkId: String, _ id: String) {
+    var links = UserDefaults.standard.stringArray(forKey: linksKey(checkId)) ?? []
+    if !links.contains(id) { links.append(id) }
+    UserDefaults.standard.set(links, forKey: linksKey(checkId))
+  }
+
+  // Store the answer for JS and silence the whole check (the link ringing now and the ones still to come).
+  static func answer(_ checkId: String, _ value: String) {
+    var answers = UserDefaults.standard.dictionary(forKey: answersKey) as? [String: String] ?? [:]
+    answers[checkId] = value
+    UserDefaults.standard.set(answers, forKey: answersKey)
+    for id in UserDefaults.standard.stringArray(forKey: linksKey(checkId)) ?? [] {
+      if let uuid = UUID(uuidString: id) { try? AlarmManager.shared.stop(id: uuid) }
+      cancel(id: id)
+    }
+    UserDefaults.standard.removeObject(forKey: linksKey(checkId))
+  }
+
+  static func takeAnswers() -> [String: String] {
+    let answers = UserDefaults.standard.dictionary(forKey: answersKey) as? [String: String] ?? [:]
+    UserDefaults.standard.removeObject(forKey: answersKey)
+    return answers
+  }
+
   static func stopAlerting() {
     guard let alarms = try? AlarmManager.shared.alarms else { return }
     for alarm in alarms where alarm.state == .alerting {
@@ -167,6 +254,46 @@ public struct WakeyRearmIntent: LiveActivityIntent {
       title: alarmTitle, stopText: stopText, sound: sound,
       rearms: left - 1
     )
+    return .result()
+  }
+}
+
+// "Still awake?" → Yes (the alert's stop button): awake. Ends the check without opening the app.
+@available(iOS 26.0, *)
+public struct WakeyCheckYesIntent: LiveActivityIntent {
+  public static var title: LocalizedStringResource = "I'm awake"
+  public static var openAppWhenRun: Bool = false
+
+  @Parameter(title: "checkId") public var checkId: String
+
+  public init() {}
+
+  init(checkId: String) {
+    self.checkId = checkId
+  }
+
+  public func perform() async throws -> some IntentResult {
+    WakeyAlarmKit.answer(checkId, "yes")
+    return .result()
+  }
+}
+
+// "Still awake?" → No: ends the check and opens the app, where JS starts the wake-up game again.
+@available(iOS 26.0, *)
+public struct WakeyCheckNoIntent: LiveActivityIntent {
+  public static var title: LocalizedStringResource = "Not awake yet"
+  public static var openAppWhenRun: Bool = true
+
+  @Parameter(title: "checkId") public var checkId: String
+
+  public init() {}
+
+  init(checkId: String) {
+    self.checkId = checkId
+  }
+
+  public func perform() async throws -> some IntentResult {
+    WakeyAlarmKit.answer(checkId, "no")
     return .result()
   }
 }

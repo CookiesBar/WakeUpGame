@@ -1,8 +1,12 @@
-// Pop Wakey: the v3 mascot. Body parts are separate SVG layers moved with native transforms;
-// the eyes are paths rebuilt every frame from a mood vector, so moods MORPH instead of swapping
-// drawings (same method as Lazy Leo's leo.tsx). Canvas: design "Wakey v3 Mascot", page App v3.
+// Wakey, the v3 mascot: a round alarm clock with two bells, a clock-dial face and noodle limbs.
+// Art and rules: assets/mascots/face-rig/ (MOTION.md Part 2 wins over everything). Data: ./wakey/rig.ts (generated).
+// Layer method: the head, bells and hands are static SVG layers turned by native transforms at their pivots, and
+// the limbs are plain views nested at their joints, so nothing redraws while he walks. Only the two small face
+// canvases (eyes, mouth) redraw, and only while an expression morphs, the pupils glide or he blinks.
+// What moves: expressions morph point by point (380 ms, the rig's fade rule), blinks and glances; `ring` rings the
+// bells in one burst; `wave` waves the near hand; `steps` plays the walk with a live face. The hands rest at 8:00.
 import { useIsFocused } from 'expo-router';
-import { useEffect, type ComponentProps, type ReactNode } from 'react';
+import { Fragment, useEffect, useId, useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import Animated, {
   Easing,
@@ -10,414 +14,655 @@ import Animated, {
   cancelAnimation,
   useAnimatedProps,
   useAnimatedStyle,
+  useDerivedValue,
   useReducedMotion,
   useSharedValue,
+  withDelay,
   withRepeat,
   withSequence,
   withTiming,
   type SharedValue,
 } from 'react-native-reanimated';
-import Svg, { Circle, Ellipse, G, Path, Rect } from 'react-native-svg';
+import Svg, { ClipPath, Defs, Ellipse, G, Path } from 'react-native-svg';
+import { scheduleOnUI } from 'react-native-worklets';
 
-import { Pop } from '@/constants/pop';
+import { EASE_IN_OUT, EASE_OUT } from '@/utils/motion';
 
-// Curves first: worklets capture module constants when they are created.
-const EASE_OUT = Easing.bezierFn(0.23, 1, 0.32, 1);
-const EASE_IN_OUT = Easing.bezierFn(0.77, 0, 0.175, 1);
+import { ART, EYES, MOUTH, PIVOT, VIEWBOX, WALK, type EyeName, type Family, type MouthName } from './wakey/rig';
+import { JOINT, mixPose, solve, standPose, walkPose } from './wakey/walk';
 
-const { ink: INK, blue: BLUE, sun: SUN, mist: MIST, white: WHITE } = Pop;
-const W = 400;
-const H = 440;
-const EYE_Y = 236;
-const EYES = [168, 232] as const;
+// Curves and data first: worklets capture what they reference when they are created.
+const [VX, VY, VW, VH] = VIEWBOX;
 const MORPH = 380;
-/** Idle loop; blink and glance timings divide it so the loop never jumps (Leo's). */
-const PERIOD = 9600;
+const NEVER = ReduceMotion.Never; // the caller decides (`live`); Reanimated must not skip on its own
+const LINEAR = { easing: Easing.linear, reduceMotion: NEVER };
+const IN_OUT = { easing: EASE_IN_OUT, reduceMotion: NEVER };
+const PERIOD = WALK.tokens.period;
+const REST = WALK.restFrameMs; // Reduce Motion holds this walk frame (pic5's stride)
+const STEP = PERIOD / 2;
 
-export type Mood = 'awake' | 'sleepy' | 'ringing' | 'happy' | 'snoozed' | 'proud' | 'think';
-/** 0 eye w, 1 eye h, 2 lid top, 3 lid bottom, 4 tilt°, 5 pupil x, 6 pupil y, 7 pupil r, 8 star, 9 shut curve, 10 z, 11 shock, 12 sparkle */
-export type MoodVector = readonly number[];
-
-export const MOODS: Record<Mood, MoodVector> = {
-  awake: [35, 39, -39, 39, 0, 0, 0, 17, 0, -6, 0, 0, 0],
-  think: [35, 39, -39, 39, 0, -9, -14, 17, 0, -6, 0, 0, 0],
-  sleepy: [35, 39, 3, 39, 0, -2, 19, 17, 0, -6, 1, 0, 0],
-  snoozed: [35, 39, -6, 39, -7, 15, 6, 17, 0, -6, 0, 0, 0],
-  ringing: [38, 44, -44, 44, 0, 0, 0, 8, 0, -6, 0, 1, 0],
-  happy: [35, 39, 14, 14, 0, 0, 0, 17, 0, 16, 0, 0, 0],
-  proud: [35, 39, -39, 39, 0, 0, 0, 23, 1, -6, 0, 0, 1],
+/** Tune here ("calmer" = smaller numbers). Face-rig units, degrees, ms. */
+const T = {
+  /** Keep walking this long after the last counted step: the iOS pedometer reports in batches every 1-3 s. */
+  walkHold: 2500,
+  /** Pupil range (the white allows 8 sideways, 11 up or down) and how far `lookX` moves them per unit. */
+  pupil: [8, 11] as const,
+  look: 0.47,
+  /** Idle life while standing: a blink every 2.6-4.6 s (sometimes two), glances that hold 0.9-1.8 s. */
+  blinkEvery: [2600, 2000] as const,
+  doubleBlink: 0.15,
+  blink: WALK.tokens.face.blink, // close, hold, reopen
+  glance: { wait: [1200, 1400], hold: [900, 900], x: [2.5, 3.5], y: [-3, 4], glide: 450 },
+  /** The `ring` burst (preview.html's): 4 cycles, 5°, 450 ms, under a sine envelope. */
+  ring: { deg: 5, cycles: 4, ms: 450 },
+  /** While the bells ring, the whole clock rocks on its feet with them, at this share of the bells' angle (an alarm clock going off). */
+  rattle: 1,
+  /** The `wave`: two waves of the near forearm over 900 ms. */
+  wave: { deg: 16, cycles: 2, ms: 900 },
 };
 
+/** Standing arms: [far upper°, far elbow°, near upper°, near elbow°], clockwise from hanging down (+ = toward the left). */
+type Arms = 'down' | 'wave' | 'cheer';
+const ARMS: Record<Arms, readonly number[]> = {
+  down: [8, 10, -8, 8],
+  wave: [8, 10, -130, -40],
+  cheer: [125, 30, -125, -30],
+};
+
+export type Mood = 'awake' | 'sleepy' | 'ringing' | 'happy' | 'snoozed' | 'proud' | 'think' | 'alarm';
+const MOOD_LIST: Mood[] = ['awake', 'sleepy', 'ringing', 'happy', 'snoozed', 'proud', 'think', 'alarm'];
+/** Each mood is one rig expression (eyes + mouth) plus how much the idle glances move the pupils. */
+const FACE: Record<Mood, { eyes: EyeName; mouth: MouthName; gaze: number }> = {
+  awake: { eyes: 'neutral', mouth: 'smile', gaze: 1 },
+  think: { eyes: 'look-up', mouth: 'flat', gaze: 0.35 },
+  // The rig's half-lid and squint read as annoyed at app sizes: asleep (pic 1) and a downcast look stay gentle.
+  sleepy: { eyes: 'asleep', mouth: 'sleepy', gaze: 0 },
+  snoozed: { eyes: 'look-down', mouth: 'flat', gaze: 0.4 },
+  ringing: { eyes: 'surprised-wide', mouth: 'open-shout', gaze: 0.5 },
+  happy: { eyes: 'happy-closed', mouth: 'open-shout', gaze: 0 },
+  proud: { eyes: 'happy-closed', mouth: 'smile', gaze: 0 },
+  // The sheet's Alarm pose: eyes squeezed shut under wavy brows, shouting (its SNOOZE plate is left out).
+  alarm: { eyes: 'scrunched', mouth: 'open-shout', gaze: 0 },
+};
+
+/**
+ * The sheet's Alarm pose (mascot sheet, pose-alarm.svg: the rig's own art moved by ALARM.offset): arms flung out
+ * and up, the far leg kicked out, standing on the near foot. Body-pose targets in face-rig units (see walk.ts Pose).
+ * `b` (-1..1) is the ring burst: the arms flap and the kicked leg flutters with it.
+ */
+const ALARM = {
+  offset: [-60.3, -28.5], // pose-alarm.svg → face-rig units
+  arms: [113, 14, -103, -10],
+  kick: [17, 340],
+  stand: [236, 389],
+  flap: [10, 28], // upper arm°, elbow° at the burst's peak
+  flutter: 6,
+};
+function alarmPose(b: number): number[] {
+  'worklet';
+  const [lu, le, ru, re] = ALARM.arms;
+  const [fu, fe] = ALARM.flap;
+  const f = ALARM.flutter * b;
+  return [0, 0, 0, ALARM.kick[0] - f, ALARM.kick[1] - f, 0, ALARM.stand[0], ALARM.stand[1], 0, lu + fu * b, le + fe * b, ru - fu * b, re - fe * b, 0, 0, 0, 1];
+}
+/** The pose's shake lines by the bells and its two lightning bolts, in pose-alarm.svg units. */
+const ALARM_SUN = '#FFBC00';
+const ALARM_LINES = [
+  'M70.0222 83.4902C70.0222 83.4902 57.8121 106.54 65.9621 124.41',
+  'M178.292 53.8008C178.292 53.8008 210.242 63.8908 202.092 77.1208',
+  'M272.812 56.8496C272.812 56.8496 254.451 68.5396 262.011 86.6196',
+  'M376.062 133.27C376.062 133.27 371.192 164.479 347.432 159.609',
+];
+const ALARM_BOLTS = [
+  'M411.752 33.1602L377.252 47.2502L392.942 66.9502L361.632 83.8501L410.692 74.5302L396.852 51.2302L425.452 44.1102L411.752 33.1602Z',
+  'M19.9426 272.309L57.0825 269.149L47.9825 245.669L82.9026 238.869L33.3026 233.129L39.5626 259.499L10.1426 257.769L19.9426 272.309Z',
+];
+/** Weights over the moods (in MOOD_LIST order). Blended moods blend the rig shapes point by point. */
+export type MoodVector = readonly number[];
+export const MOODS = MOOD_LIST.reduce((o, m) => ({ ...o, [m]: MOOD_LIST.map(x => (x === m ? 1 : 0)) }), {} as Record<Mood, MoodVector>);
 /** A mood between two others, for states that change continuously (walk progress, a hold). */
 export const mixMoods = (a: Mood, b: Mood, t: number): number[] => MOODS[a].map((v, i) => v + (MOODS[b][i] - v) * t);
 
-type Key = readonly [number, number, 'out'?];
-const BLINK: readonly Key[] = [
-  [0, 0], [2100, 0], [2210, 1], [2250, 1], [2440, 0, 'out'],
-  [5600, 0], [5710, 1], [5750, 1], [5940, 0, 'out'], [6080, 0], [6190, 1], [6230, 1], [6420, 0, 'out'], [PERIOD, 0],
-];
-const LOOK_X: readonly Key[] = [[0, 0], [2150, 0], [2650, -6], [3900, -6], [4400, 0], [5650, 0], [6150, 6], [7700, 6], [8200, 0], [PERIOD, 0]];
-const LOOK_Y: readonly Key[] = [[0, 0], [2150, 0], [2650, 1], [3900, 1], [4400, 0], [5650, 0], [6150, -3], [7700, -3], [8200, 0], [PERIOD, 0]];
+/** Per target path: its numbers, then its opacity (rig.ts layout). */
+type Shapes = number[][];
+function blend<N extends string>(fam: Family<N>, parts: readonly (readonly [N, number])[]): Shapes {
+  const sum = parts.reduce((s, [, w]) => s + w, 0) || 1;
+  return fam.shapes[parts[0][0]].map((row, i) => row.map((_, j) => parts.reduce((s, [n, w]) => s + fam.shapes[n][i][j] * w, 0) / sum));
+}
+const moodParts = <K extends 'eyes' | 'mouth'>(v: readonly number[], key: K) =>
+  MOOD_LIST.map((m, i) => [FACE[m][key], v[i] ?? 0] as const).filter(([, w]) => w > 0.001) as unknown as readonly (readonly [(typeof FACE)[Mood][K], number])[];
+const one = <N extends string>(fam: Family<N>, n: N) => blend(fam, [[n, 1]]);
+const WALK_FACE = { neutral: one(EYES, 'neutral'), happy: one(EYES, 'happy-closed'), smile: one(MOUTH, 'smile'), open: one(MOUTH, 'open-shout') };
+const idx = (fam: Family<string>, id: string) => fam.targets.indexOf(id);
 
-function track(t: number, keys: readonly Key[]): number {
+function clamp01(x: number): number {
   'worklet';
-  if (t <= keys[0][0]) return keys[0][1];
-  for (let i = 1; i < keys.length; i++) {
-    const k1 = keys[i];
-    if (t <= k1[0]) {
-      const k0 = keys[i - 1];
-      const p = k1[0] > k0[0] ? (t - k0[0]) / (k1[0] - k0[0]) : 1;
-      return k0[1] + (k1[1] - k0[1]) * (k1[2] === 'out' ? EASE_OUT(p) : EASE_IN_OUT(p));
-    }
+  return x < 0 ? 0 : x > 1 ? 1 : x;
+}
+/** Value j of a morph from a to b at eased progress e. The last value is opacity: it rises over the last 40%, falls over the first 40%. */
+function morphAt(a: number[], b: number[], j: number, e: number): number {
+  'worklet';
+  const n = b.length - 1;
+  if (j < n) return a[j] + (b[j] - a[j]) * e;
+  return a[n] + (b[n] - a[n]) * (b[n] > a[n] ? clamp01((e - 0.6) / 0.4) : clamp01(e / 0.4));
+}
+function morphAll(from: Shapes, to: Shapes, p: number): Shapes {
+  'worklet';
+  const e = EASE_IN_OUT(p);
+  return to.map((b, i) => b.map((_, j) => morphAt(from[i], b, j, e)));
+}
+/** An SVG path from a command signature ('MCCCCZ') and its numbers, every point moved by (dx, dy). */
+function pathOf(cmds: string, n: number[], dx: number, dy: number): string {
+  'worklet';
+  let s = '';
+  let j = 0;
+  for (let c = 0; c < cmds.length; c++) {
+    const ch = cmds[c];
+    const pts = ch === 'C' ? 3 : ch === 'Z' ? 0 : 1;
+    s += ch;
+    for (let q = 0; q < pts; q++, j += 2) s += `${q ? ' ' : ''}${(n[j] + dx).toFixed(2)} ${(n[j + 1] + dy).toFixed(2)}`;
   }
-  return keys[keys.length - 1][1];
+  return s;
 }
 
-/** An ellipse (cx, cy, rx, ry) cut by two horizontal lid lines (offsets from cy), rotated about (ox, oy). */
-function band(cx: number, cy: number, rx: number, ry: number, top: number, bot: number, ox: number, oy: number, deg: number): string {
-  'worklet';
-  const t = Math.max(-ry, Math.min(ry, top));
-  const b = Math.max(-ry, Math.min(ry, bot));
-  if (b - t < 0.6) return 'M0 0';
-  const rad = (deg * Math.PI) / 180;
-  const cs = Math.cos(rad);
-  const sn = Math.sin(rad);
-  const P = (x: number, y: number) => {
-    const dx = x - ox;
-    const dy = y - oy;
-    return `${(ox + dx * cs - dy * sn).toFixed(2)} ${(oy + dx * sn + dy * cs).toFixed(2)}`;
-  };
-  const wt = rx * Math.sqrt(Math.max(0, 1 - (t / ry) * (t / ry)));
-  const wb = rx * Math.sqrt(Math.max(0, 1 - (b / ry) * (b / ry)));
-  const A = `A${rx.toFixed(2)} ${ry.toFixed(2)} ${deg.toFixed(2)} 0 1 `;
-  return `M${P(cx - wt, cy + t)}L${P(cx + wt, cy + t)}${A}${P(cx + wb, cy + b)}L${P(cx - wb, cy + b)}${A}${P(cx - wt, cy + t)}Z`;
+type Morph = { from: SharedValue<Shapes>; to: SharedValue<Shapes>; p: SharedValue<number> };
+function useMorph(initial: Shapes) {
+  const from = useSharedValue(initial);
+  const to = useSharedValue(initial);
+  const p = useSharedValue(1);
+  return useRef({
+    m: { from, to, p } as Morph,
+    /** Morph to `next` in 380 ms from wherever the face is now (or jump there). */
+    go(next: Shapes, animate: boolean) {
+      scheduleOnUI(
+        (n: Shapes, anim: boolean) => {
+          'worklet';
+          from.value = anim ? morphAll(from.value, to.value, p.value) : n;
+          to.value = n;
+          p.value = anim ? 0 : 1;
+          if (anim) p.value = withTiming(1, { duration: MORPH, ...LINEAR });
+        },
+        next,
+        animate,
+      );
+    },
+  }).current;
 }
-
-/** A round pupil that pinches into a 4-point star as `star` goes 0 to 1. */
-function starPupil(x: number, y: number, r: number, star: number): string {
-  'worklet';
-  const c = r * 0.914 * (1 - star) + 3 * star;
-  const f = (n: number) => n.toFixed(2);
-  return `M${f(x)} ${f(y - r)}Q${f(x + c)} ${f(y - c)} ${f(x + r)} ${f(y)}Q${f(x + c)} ${f(y + c)} ${f(x)} ${f(y + r)}Q${f(x - c)} ${f(y + c)} ${f(x - r)} ${f(y)}Q${f(x - c)} ${f(y - c)} ${f(x)} ${f(y - r)}Z`;
-}
-
-type Arms = 'down' | 'wave' | 'cheer';
-const ARM_PATHS: Record<Arms, [string, [number, number], [number, number], string, [number, number], [number, number]]> = {
-  // left path, left hand, left shoulder, right path, right hand, right shoulder
-  down: ['M82 276Q58 288 46 308', [40, 316], [82, 276], 'M318 276Q342 288 354 308', [360, 316], [318, 276]],
-  wave: ['M82 276Q58 288 46 308', [40, 316], [82, 276], 'M318 226Q340 206 348 178', [352, 170], [318, 226]],
-  cheer: ['M82 226Q60 206 52 178', [48, 170], [82, 226], 'M318 226Q340 206 348 178', [352, 170], [318, 226]],
-};
 
 const AnimatedPath = Animated.createAnimatedComponent(Path);
+type Look = { gx: SharedValue<number>; gy: SharedValue<number>; look?: SharedValue<number> };
 
-/** A looping clock 0..period ms; frozen at 0 (a calm resting frame) when not live. */
-function useLoopClock(period: number, live: boolean): SharedValue<number> {
-  const clock = useSharedValue(0);
-  useEffect(() => {
-    cancelAnimation(clock);
-    clock.value = 0;
-    if (!live) return;
-    clock.value = withRepeat(
-      withTiming(period, { duration: period, easing: Easing.linear, reduceMotion: ReduceMotion.Never }),
-      -1,
-      false,
-      undefined,
-      ReduceMotion.Never,
-    );
-    return () => cancelAnimation(clock);
-  }, [live, period, clock]);
-  return clock;
+/** One live rig path. `pupil` glides it, `blink` closes it toward the blink-closed shape, `clip` drops paint and opacity. */
+function Shape({ m, fam, i, pupil, blink, clip }: { m: Morph; fam: Family<string>; i: number; pupil?: Look; blink?: SharedValue<number>; clip?: boolean }) {
+  const cmds = fam.cmds[i];
+  const closed = blink ? EYES.shapes['blink-closed'][i] : null;
+  const [px, py] = T.pupil;
+  const props = useAnimatedProps(() => {
+    const e = EASE_IN_OUT(m.p.value);
+    const a = m.from.value[i];
+    const b = m.to.value[i];
+    let n = b.map((_, j) => morphAt(a, b, j, e));
+    if (blink && closed) {
+      const k = blink.value;
+      if (k > 0) n = n.map((v, j) => (j < n.length - 1 ? v + (closed[j] - v) * k : morphAt(n, closed, j, k)));
+    }
+    let dx = 0;
+    let dy = 0;
+    if (pupil) {
+      const look = pupil.look ? pupil.look.value : 0;
+      // While he watches a target, the idle glances step aside.
+      dx = pupil.gx.value * (1 - Math.min(1, Math.abs(look) / 6)) + look * T.look;
+      dy = pupil.gy.value;
+      const over = Math.hypot(dx / px, dy / py);
+      if (over > 1) {
+        dx /= over;
+        dy /= over;
+      }
+    }
+    const d = pathOf(cmds, n, dx, dy);
+    return { d, opacity: clip ? 1 : n[n.length - 1] };
+  });
+  return <AnimatedPath animatedProps={props} {...(clip ? {} : { fill: 'none', ...fam.style[i] })} />;
 }
 
-/** One full-size SVG layer, moved as a whole by a native transform. */
-function Layer({ size, style, children }: { size: number; style?: ComponentProps<typeof Animated.View>['style']; children: ReactNode }) {
+type Box = readonly [number, number, number, number];
+type AnyStyle = ComponentProps<typeof Animated.View>['style'];
+/** A layer of the body: an SVG cropped to `box` (face-rig units), moved as a whole by a native transform. */
+function Layer({ k, box = VIEWBOX, style, children }: { k: number; box?: Box; style?: AnyStyle; children: ReactNode }) {
+  const [x, y, w, h] = box;
   return (
-    <Animated.View style={[StyleSheet.absoluteFill, style]} pointerEvents="none">
-      <Svg width={size} height={(size * H) / W} viewBox={`0 0 ${W} ${H}`}>
+    <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, style]}>
+      <Svg style={{ position: 'absolute', left: (x - VX) * k, top: (y - VY) * k }} width={w * k} height={h * k} viewBox={`${x} ${y} ${w} ${h}`}>
         {children}
       </Svg>
     </Animated.View>
   );
 }
+const paths = (list: readonly (readonly [string, string])[]) => list.map(([d, fill], i) => <Path key={i} d={d} fill={fill} />);
+/** Crops of the two face canvases: they redraw while the face moves, so they stay small. */
+const EYE_BOX: Box = [80, 105, 140, 92];
+const MOUTH_BOX: Box = [110, 185, 80, 66];
 
-function Bell({ x, a }: { x: number; a: number }) {
-  const body = 'M-52 -16Q-55 -25 -46 -28C-44 -62 -26 -80 0 -80C26 -80 44 -62 46 -28Q55 -25 52 -16Z';
+/** A round-capped noodle `len` px long hanging from its joint (x, y, in its parent's px), turned at the joint by `style`. */
+function Bone({ x, y, len, w, color, style, children }: { x: number; y: number; len: number; w: number; color: string; style: AnyStyle; children?: ReactNode }) {
   return (
-    <>
-      <G transform={`translate(${x + 1} 130) rotate(${a})`}>
-        <Rect x={-6} y={-24} width={12} height={38} rx={4} fill={INK} />
-        <Circle cy={-90} r={11} fill={INK} />
-        <Path d={body} fill={INK} stroke={INK} strokeWidth={11} />
-      </G>
-      <G transform={`translate(${x} 126) rotate(${a})`}>
-        <Rect x={-6} y={-24} width={12} height={38} rx={4} fill={INK} />
-        <Circle cy={-90} r={11} fill={INK} />
-        <Path d={body} fill={SUN} stroke={INK} strokeWidth={11} strokeLinejoin="round" />
-      </G>
-    </>
+    <Animated.View style={[{ position: 'absolute', left: x - w / 2, top: y - w / 2, width: w, height: len + w, borderRadius: w / 2, backgroundColor: color, transformOrigin: [w / 2, w / 2, 0] }, style]}>
+      {children}
+    </Animated.View>
   );
 }
-
-function Limb({ d, hand }: { d: string; hand: [number, number] }) {
-  return (
-    <>
-      <Path d={d} fill="none" stroke={INK} strokeWidth={13} strokeLinecap="round" transform="translate(1 3)" />
-      <Path d={d} fill="none" stroke={INK} strokeWidth={13} strokeLinecap="round" />
-      <Circle cx={hand[0] + 1} cy={hand[1] + 4} r={22} fill={INK} stroke={INK} strokeWidth={9} />
-      <Circle cx={hand[0]} cy={hand[1]} r={22} fill={WHITE} stroke={INK} strokeWidth={9} />
-    </>
-  );
+/** A foot: a short noodle pointing left from the ankle at the end of its shin. */
+function Foot({ len, f, w, color, style }: { len: number; f: number; w: number; color: string; style: AnyStyle }) {
+  return <Animated.View style={[{ position: 'absolute', left: -f, top: len, width: f + w, height: w, borderRadius: w / 2, backgroundColor: color, transformOrigin: [f + w / 2, w / 2, 0] }, style]} />;
 }
 
-function Leg({ x1, x2, foot }: { x1: number; x2: number; foot: number }) {
-  const d = `M${x1} 362L${x2} 394`;
-  return (
-    <>
-      <Path d={d} fill="none" stroke={INK} strokeWidth={13} strokeLinecap="round" transform="translate(1 3)" />
-      <Path d={d} fill="none" stroke={INK} strokeWidth={13} strokeLinecap="round" />
-      <Ellipse cx={foot + 1} cy={408} rx={30} ry={15} fill={INK} stroke={INK} strokeWidth={9} />
-      <Ellipse cx={foot} cy={404} rx={30} ry={15} fill={WHITE} stroke={INK} strokeWidth={9} />
-    </>
-  );
+function useTurn(pose: SharedValue<number[]>, i: number) {
+  return useAnimatedStyle(() => ({ transform: [{ rotate: `${pose.value[i]}deg` }] }));
+}
+function burstAt(p: number, amp: number): number {
+  'worklet';
+  if (p >= 1) return 0;
+  return amp * T.ring.deg * Math.sin(p * T.ring.cycles * 2 * Math.PI) * Math.sin(p * Math.PI);
 }
 
 export interface WakeyProps {
   /** A named mood, or a vector from `mixMoods` for in-between states. Changes morph in 380 ms. */
   mood?: Mood | MoodVector;
   size?: number;
+  /** Standing arms. While he walks, the arms swing with the walk instead. */
   arms?: Arms;
-  /** How hard he rings, 0 to 1 (bells, shake, shock lines, flailing arms). */
+  /** How hard he rings, 0 to 1: each rise rings the bells once (one short burst, then rest). */
   ring?: number;
-  /** Counts steps: each change lifts the next foot. */
+  /** Counts steps: while it keeps changing he walks; when it stops he finishes the step and stands. */
   steps?: number;
+  /** Walk regardless of `steps`: the user is moving (motion detected) even between pedometer reports. */
+  walk?: boolean;
+  /** The sheet's Alarm pose instead of standing (`arms` is ignored); with `ring`, every burst shakes it and flashes its shake lines. Pair with mood "alarm". */
+  alarm?: boolean;
   /** Change it to make him wave once. */
   wave?: number;
-  /** Extra pupil offset in px (a target he watches, e.g. the time wheel spinning). */
+  /** Extra pupil offset (±14 is a strong glance), e.g. toward the key you hit. */
   lookX?: SharedValue<number>;
+  /** Face only (streak card, the sum): no body or limbs, cropped to the head; `size` is its width. */
+  head?: boolean;
+  /** Point the clock hands at this time instead of resting at 8:00 (the streak card shows the real time). */
+  time?: Date;
   onPress?: () => void;
   accessibilityLabel?: string;
 }
 
-export default function Wakey({
-  mood = 'awake',
-  size = 200,
-  arms = 'wave',
-  ring = 0,
-  steps = 0,
-  wave = 0,
-  lookX,
-  onPress,
-  accessibilityLabel,
-}: WakeyProps) {
+/** The head-only crop in face-rig units: bells to chin. */
+const HEAD: Box = [13, 11, 300, 304];
+
+export default function Wakey({ mood = 'awake', size = 200, arms = 'wave', ring = 0, steps = 0, walk = false, alarm = false, wave = 0, lookX, head = false, time, onPress, accessibilityLabel }: WakeyProps) {
   const reduced = useReducedMotion();
   const focused = useIsFocused();
   const live = !reduced && focused;
-  const t = useLoopClock(PERIOD, live);
-  const k = size / W;
+  const k = size / (head ? HEAD[2] : VW);
+  const uid = useId().replace(/\W/g, '');
 
-  // --- mood morph -----------------------------------------------------------------
-  const target = typeof mood === 'string' ? MOODS[mood] : mood;
-  const targetKey = target.map(v => v.toFixed(2)).join(',');
-  const from = useSharedValue<number[]>([...target]);
-  const to = useSharedValue<number[]>([...target]);
-  const p = useSharedValue(MORPH);
+  // --- walking: while `steps` keeps changing, or while the caller says the user is moving ---
+  const [stepping, setStepping] = useState(false);
   useEffect(() => {
-    const next = targetKey.split(',').map(Number);
+    if (!steps) return setStepping(false);
+    setStepping(true);
+    const timer = setTimeout(() => setStepping(false), T.walkHold);
+    return () => clearTimeout(timer);
+  }, [steps]);
+  const walking = stepping || walk;
+
+  const clock = useSharedValue(reduced ? REST : 0); // walk time, ms
+  const walkW = useSharedValue(0); // 0 standing, 1 walking
+  useEffect(() => {
+    cancelAnimation(clock);
+    cancelAnimation(walkW);
     if (reduced) {
-      from.value = next;
-      to.value = next;
-      p.value = MORPH;
+      clock.value = REST;
+      walkW.value = walking ? 1 : 0;
       return;
     }
-    // Interruptible: start from wherever the last morph had got to.
-    const e = EASE_OUT(Math.min(1, p.value / MORPH));
-    from.value = from.value.map((v, i) => v + (to.value[i] - v) * e);
-    to.value = next;
-    p.value = 0;
-    p.value = withTiming(MORPH, { duration: MORPH, easing: Easing.linear, reduceMotion: ReduceMotion.Never });
-  }, [targetKey, reduced, from, to, p]);
+    if (!focused) return; // off screen: hold still where he is
+    if (walking) {
+      // withRepeat restarts from the start value each lap: a whole period later, so the pose is the same.
+      const t0 = clock.value;
+      clock.value = withRepeat(withTiming(t0 + PERIOD, { duration: PERIOD, ...LINEAR }), -1, false, undefined, NEVER);
+      walkW.value = withTiming(1, { duration: MORPH, ...IN_OUT });
+    } else if (walkW.value > 0) {
+      // Finish the step (walk on to the next heel strike), then settle into standing.
+      const t0 = clock.value;
+      const end = Math.ceil(t0 / STEP) * STEP;
+      clock.value = withTiming(end, { duration: end - t0, ...LINEAR });
+      walkW.value = withDelay(end - t0, withTiming(0, { duration: MORPH, ...IN_OUT }), NEVER);
+    }
+  }, [walking, reduced, focused, clock, walkW]);
 
-  // --- ringing, steps, wave ----------------------------------------------------
-  const amp = useSharedValue(ring);
+  // --- arms, wave, ring ---------------------------------------------------------------------
+  const armFrom = useSharedValue<readonly number[]>(ARMS[arms]);
+  const armTo = useSharedValue<readonly number[]>(ARMS[arms]);
+  const armP = useSharedValue(1);
   useEffect(() => {
-    amp.value = withTiming(reduced ? 0 : ring, { duration: 300 });
-  }, [ring, reduced, amp]);
-  const lift = useSharedValue(0);
-  const footSide = useSharedValue(0); // 1 = left foot steps
-  useEffect(() => {
-    if (steps === 0 || reduced) return;
-    footSide.value = steps % 2;
-    lift.value = withSequence(withTiming(1, { duration: 130 }), withTiming(0, { duration: 130 }));
-  }, [steps, reduced, lift, footSide]);
+    const next = ARMS[arms];
+    scheduleOnUI(
+      (n: readonly number[], anim: boolean) => {
+        'worklet';
+        const e = EASE_IN_OUT(armP.value);
+        armFrom.value = anim ? armTo.value.map((v, i) => armFrom.value[i] + (v - armFrom.value[i]) * e) : n;
+        armTo.value = n;
+        armP.value = anim ? 0 : 1;
+        if (anim) armP.value = withTiming(1, { duration: MORPH, ...LINEAR });
+      },
+      next,
+      live,
+    );
+  }, [arms, live, armFrom, armTo, armP]);
+
   const waveT = useSharedValue(1);
   useEffect(() => {
-    if (wave === 0 || reduced) return;
+    if (!wave || !live) return;
     waveT.value = 0;
-    waveT.value = withTiming(1, { duration: 900, easing: Easing.linear });
-  }, [wave, reduced, waveT]);
+    waveT.value = withTiming(1, { duration: T.wave.ms, ...LINEAR });
+  }, [wave, live, waveT]);
 
-  const ms = (tt: number) => {
-    'worklet';
-    return tt / 1000;
-  };
+  const burst = useSharedValue(1);
+  const burstAmp = useSharedValue(0);
+  const lastRing = useRef(0);
+  useEffect(() => {
+    const rose = ring > lastRing.current + 0.05;
+    lastRing.current = ring;
+    if (!rose || !live) return;
+    burstAmp.value = ring;
+    burst.value = 0;
+    burst.value = withTiming(1, { duration: T.ring.ms, ...LINEAR });
+  }, [ring, live, burst, burstAmp]);
 
-  // --- eye worklets --------------------------------------------------------------
-  const vec = () => {
-    'worklet';
-    const e = EASE_OUT(Math.min(1, p.value / MORPH));
-    return from.value.map((v, i) => v + (to.value[i] - v) * e);
-  };
-  const eyeAt = (j: number) => {
-    'worklet';
-    const v = vec();
-    const tt = t.value;
-    const blink = v[9] < 0 && tt > 0 ? track(tt, BLINK) : 0;
-    let top = v[2];
-    let bot = v[3];
-    const m = top + 0.6 * (bot - top);
-    top += blink * (m - top);
-    bot -= blink * (bot - m);
-    const gaze = 1 - v[8];
-    let px = v[5] + gaze * track(tt, LOOK_X) + (lookX ? lookX.value : 0);
-    let py = v[6] + gaze * track(tt, LOOK_Y);
-    // Ringing: the pupils jitter with the bells.
-    px += amp.value * 3 * Math.sin(ms(tt) * 2 * Math.PI * 11);
-    const reach = Math.min(v[0], v[1]) - v[7] * 0.55;
-    const d = Math.hypot(px, py);
-    if (d > reach) {
-      px = (px / d) * reach;
-      py = (py / d) * reach;
-    }
-    return { cx: EYES[j], rx: v[0], ry: v[1], top, bot, deg: v[4], px, py, pr: v[7], star: v[8], curve: v[9] };
-  };
-  const white = (j: number) => () => {
-    'worklet';
-    const e = eyeAt(j);
-    return { d: band(e.cx, EYE_Y, e.rx, e.ry, e.top, e.bot, e.cx, EYE_Y, e.deg) };
-  };
-  const pupil = (j: number) => () => {
-    'worklet';
-    const e = eyeAt(j);
-    if (e.star > 0.001) return { d: starPupil(e.cx + e.px, EYE_Y + e.py, e.pr, e.star) };
-    // A round pupil is cut by the same lid lines as the eye, so lids hide it without a clip path.
-    return { d: band(e.cx + e.px, EYE_Y + e.py, e.pr, e.pr, e.top - e.py, e.bot - e.py, e.cx, EYE_Y, e.deg) };
-  };
-  const shut = (j: number) => () => {
-    'worklet';
-    const e = eyeAt(j);
-    const closure = 1 - (Math.min(e.ry, e.bot) - Math.max(-e.ry, e.top)) / (2 * e.ry);
-    const y = EYE_Y + (e.top + e.bot) / 2;
-    const w = 0.62 * e.rx;
-    return {
-      d: `M${(e.cx - w).toFixed(2)} ${y.toFixed(2)}Q${e.cx} ${(y - 2 * e.curve).toFixed(2)} ${(e.cx + w).toFixed(2)} ${y.toFixed(2)}`,
-      strokeOpacity: Math.max(0, Math.min(1, (closure - 0.86) / 0.14)),
-    };
-  };
-  const dropL = useAnimatedProps(white(0));
-  const dropR = useAnimatedProps(white(1));
-  const lineL = useAnimatedProps(white(0));
-  const lineR = useAnimatedProps(white(1));
-  const fillL = useAnimatedProps(white(0));
-  const fillR = useAnimatedProps(white(1));
-  const pupilL = useAnimatedProps(pupil(0));
-  const pupilR = useAnimatedProps(pupil(1));
-  const shutL = useAnimatedProps(shut(0));
-  const shutR = useAnimatedProps(shut(1));
-
-  // --- body layers -----------------------------------------------------------------
-  const [armL, handL, shL, armR, handR, shR] = ARM_PATHS[arms];
-  const ringDeg = (sign: number, hz: number, deg: number) => {
-    'worklet';
-    return sign * amp.value * deg * Math.sin(ms(t.value) * 2 * Math.PI * hz);
-  };
-  const whole = useAnimatedStyle(() => ({ transform: [{ rotate: `${ringDeg(1, 9, 2)}deg` }] }));
-  const bellL = useAnimatedStyle(() => ({ transform: [{ rotate: `${ringDeg(1, 7, 16)}deg` }] }));
-  const bellR = useAnimatedStyle(() => ({ transform: [{ rotate: `${ringDeg(-1, 7, 16)}deg` }] }));
-  const armLStyle = useAnimatedStyle(() => ({ transform: [{ rotate: `${ringDeg(1, 3, 8)}deg` }] }));
-  const armRStyle = useAnimatedStyle(() => {
-    const w = waveT.value < 1 ? 14 * Math.sin(waveT.value * Math.PI * 3) * (1 - waveT.value) : 0;
-    return { transform: [{ rotate: `${ringDeg(-1, 3, 8) + w}deg` }] };
+  // --- the body: one pose a frame, solved to joint rotations -------------------------------
+  const pose = useDerivedValue(() => {
+    const e = EASE_IN_OUT(armP.value);
+    const a = armTo.value.map((v, i) => armFrom.value[i] + (v - armFrom.value[i]) * e);
+    const q = waveT.value;
+    if (q < 1) a[3] += T.wave.deg * Math.sin(q * T.wave.cycles * 2 * Math.PI) * Math.sin(q * Math.PI);
+    const w = walkW.value;
+    const stand = alarm ? alarmPose(burstAt(burst.value, burstAmp.value) / T.ring.deg) : standPose(a);
+    return solve(w > 0 ? mixPose(stand, walkPose(clock.value), w) : stand);
   });
-  const legL = useAnimatedStyle(() => ({ transform: [{ translateY: -14 * k * lift.value * footSide.value }] }));
-  const legR = useAnimatedStyle(() => ({ transform: [{ translateY: -14 * k * lift.value * (1 - footSide.value) }] }));
-  const zStyle = useAnimatedStyle(() => ({ opacity: vec()[10] }));
-  const shockStyle = useAnimatedStyle(() => ({ opacity: Math.max(vec()[11], amp.value) }));
-  const sparkStyle = useAnimatedStyle(() => ({ opacity: vec()[12] }));
+  const [PX, PY] = PIVOT.hub;
+  const body = useAnimatedStyle(() => ({ transform: [{ translateX: pose.value[0] * k }, { translateY: pose.value[1] * k }, { rotate: `${pose.value[2]}deg` }] }), [k]);
+  const rattle = useAnimatedStyle(() => ({ transform: [{ rotate: `${T.rattle * burstAt(burst.value, burstAmp.value)}deg` }] }));
+  // The Alarm pose's shake lines flash with each burst; still (Reduce Motion), they just stay, as on the sheet.
+  const flash = useAnimatedStyle(() => ({ opacity: live ? (burst.value < 1 ? burstAmp.value * Math.sin(burst.value * Math.PI) : 0) : 1 }), [live]);
+  const thighL = useTurn(pose, 3);
+  const shinL = useTurn(pose, 4);
+  const footL = useTurn(pose, 5);
+  const thighR = useTurn(pose, 6);
+  const shinR = useTurn(pose, 7);
+  const footR = useTurn(pose, 8);
+  const upperL = useTurn(pose, 9);
+  const foreL = useTurn(pose, 10);
+  const upperR = useTurn(pose, 11);
+  const foreR = useTurn(pose, 12);
+  const bellL = useAnimatedStyle(() => ({ transform: [{ rotate: `${pose.value[13] + burstAt(burst.value, burstAmp.value)}deg` }] }));
+  const bellR = useAnimatedStyle(() => ({ transform: [{ rotate: `${pose.value[14] - burstAt(burst.value, burstAmp.value)}deg` }] }));
+  const SH = JOINT.shadow;
+  const shadow = useAnimatedStyle(() => ({ transform: [{ translateX: pose.value[15] * k }, { scaleX: pose.value[16] }] }), [k]);
 
-  const origin = (x: number, y: number) => ({ transformOrigin: [x * k, y * k, 0] as [number, number, number] });
-  const box = { width: size, height: (size * H) / W };
+  // --- the face: mood (or the live walk face), blinks, glances ------------------------------
+  const vec = typeof mood === 'string' ? MOODS[mood] : mood;
+  const moodKey = vec.map(v => v.toFixed(3)).join(',');
+  const gazeAmt = MOOD_LIST.reduce((s, m, i) => s + (vec[i] ?? 0) * FACE[m].gaze, 0);
+  const shut = (e: EyeName) => e === 'happy-closed' || e === 'asleep' || e === 'scrunched';
+  const blinkable = MOOD_LIST.reduce((s, m, i) => s + (vec[i] ?? 0) * (shut(FACE[m].eyes) ? 0 : 1), 0) > 0.5;
+  const eyes = useMorph(blend(EYES, moodParts(vec, 'eyes')));
+  const mouth = useMorph(blend(MOUTH, moodParts(vec, 'mouth')));
+  const gx = useSharedValue(0);
+  const gy = useSharedValue(0);
+  const blink = useSharedValue(0);
+  const walkFace = live && walking;
 
-  const art = (
-      <>
-        <Layer size={size} style={legL}>
-          <Leg x1={182} x2={177} foot={166} />
-        </Layer>
-        <Layer size={size} style={legR}>
-          <Leg x1={218} x2={223} foot={234} />
-        </Layer>
-        <Layer size={size} style={[origin(124, 126), bellL]}>
-          <Bell x={124} a={-30} />
-        </Layer>
-        <Layer size={size} style={[origin(276, 126), bellR]}>
-          <Bell x={276} a={30} />
-        </Layer>
-        <Layer size={size} style={[origin(shL[0], shL[1]), armLStyle]}>
-          <Limb d={armL} hand={handL} />
-        </Layer>
-        <Layer size={size} style={[origin(shR[0], shR[1]), armRStyle]}>
-          <Limb d={armR} hand={handR} />
-        </Layer>
-        <Layer size={size}>
-          <Circle cx={202} cy={244} r={132} fill={INK} stroke={INK} strokeWidth={16} />
-          <Circle cx={200} cy={238} r={132} fill={BLUE} stroke={INK} strokeWidth={16} />
-          <Circle cx={200} cy={238} r={94} fill={WHITE} stroke={INK} strokeWidth={12} />
-          <G transform="translate(0 5)">
-            <AnimatedPath animatedProps={dropL} fill={INK} stroke={INK} strokeWidth={11} strokeLinejoin="round" />
-            <AnimatedPath animatedProps={dropR} fill={INK} stroke={INK} strokeWidth={11} strokeLinejoin="round" />
-          </G>
-          <AnimatedPath animatedProps={lineL} fill={INK} stroke={INK} strokeWidth={11} strokeLinejoin="round" />
-          <AnimatedPath animatedProps={lineR} fill={INK} stroke={INK} strokeWidth={11} strokeLinejoin="round" />
-          <AnimatedPath animatedProps={fillL} fill={MIST} />
-          <AnimatedPath animatedProps={fillR} fill={MIST} />
-          <AnimatedPath animatedProps={pupilL} fill={INK} />
-          <AnimatedPath animatedProps={pupilR} fill={INK} />
-          <AnimatedPath animatedProps={shutL} fill="none" stroke={INK} strokeWidth={14} strokeLinecap="round" />
-          <AnimatedPath animatedProps={shutR} fill="none" stroke={INK} strokeWidth={14} strokeLinecap="round" />
-        </Layer>
-        <Layer size={size} style={zStyle}>
-          <Path d="M318 104H344L318 130H344" fill="none" stroke={INK} strokeWidth={9} strokeLinecap="round" strokeLinejoin="round" />
-          <Path d="M352 68H370L352 86H370" fill="none" stroke={INK} strokeWidth={7} strokeLinecap="round" strokeLinejoin="round" />
-        </Layer>
-        <Layer size={size} style={shockStyle}>
-          <G stroke={INK} strokeWidth={8} strokeLinecap="round">
-            <Path d="M34 92L54 104" />
-            <Path d="M24 128L48 130" />
-            <Path d="M48 60L62 78" />
-            <Path d="M366 92L346 104" />
-            <Path d="M376 128L352 130" />
-            <Path d="M352 60L338 78" />
-          </G>
-        </Layer>
-        <Layer size={size} style={sparkStyle}>
-          <G fill={INK}>
-            <Path d="M304 43Q307 55 319 58Q307 61 304 73Q301 61 289 58Q301 55 304 43Z" />
-            <Path d="M96 42Q99 49 106 52Q99 55 96 62Q93 55 86 52Q93 49 96 42Z" />
-            <Path d="M386 227Q389 233 395 236Q389 239 386 245Q383 239 377 236Q383 233 386 227Z" />
-          </G>
-        </Layer>
-      </>
+  useEffect(() => {
+    if (walking) {
+      // The walk has its own face: live below, or held still (neutral, closed smile) under Reduce Motion / off screen.
+      if (!live) {
+        eyes.go(WALK_FACE.neutral, false);
+        mouth.go(WALK_FACE.smile, false);
+      }
+      return;
+    }
+    const v = moodKey.split(',').map(Number);
+    eyes.go(blend(EYES, moodParts(v, 'eyes')), live);
+    mouth.go(blend(MOUTH, moodParts(v, 'mouth')), live);
+  }, [moodKey, walking, live, eyes, mouth]);
+
+  useEffect(() => {
+    const glide = (x: number, y: number, ms: number) => {
+      gx.value = withTiming(x, { duration: ms, ...IN_OUT });
+      gy.value = withTiming(y, { duration: ms, ...IN_OUT });
+    };
+    if (!live) {
+      cancelAnimation(gx);
+      cancelAnimation(gy);
+      cancelAnimation(blink);
+      gx.value = 0;
+      gy.value = 0;
+      blink.value = 0;
+      return;
+    }
+    let on = true;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const later = (ms: number, fn: () => void) => timers.push(setTimeout(() => on && fn(), ms));
+    const rnd = (a: number, span: number) => a + Math.random() * span;
+    const [close, hold, open] = T.blink;
+    const blinkOnce = () => {
+      blink.value = withSequence(
+        withTiming(1, { duration: close, ...IN_OUT }),
+        withTiming(1, { duration: hold, ...LINEAR }),
+        withTiming(0, { duration: open, easing: EASE_OUT, reduceMotion: NEVER }),
+      );
+    };
+
+    if (walkFace) {
+      // The live walk face (walk-cycle.json "face" rules), on its own clock: eyes and mouth change independently.
+      type Eye = { happy: boolean; gx: number; gy: number };
+      let cur: Eye = { happy: false, gx: 0, gy: 0 };
+      let lastBlink = -Infinity;
+      eyes.go(WALK_FACE.neutral, true);
+      mouth.go(WALK_FACE.smile, true);
+      glide(0, 0, MORPH);
+      const gazeFrom = (prev: { gx: number; gy: number }): Eye => {
+        if ((prev.gx !== 0 || prev.gy !== 0) && Math.random() < 0.2) return { happy: false, gx: 0, gy: 0 };
+        for (;;) {
+          const g = { happy: false, gx: rnd(-8, 14), gy: rnd(-7, 15) };
+          if (Math.hypot(g.gx - prev.gx, g.gy - prev.gy) >= 4.5) return g;
+        }
+      };
+      const eyeStep = () => {
+        const holdMs = cur.happy ? rnd(1300, 900) : rnd(1100, 1300);
+        if (!cur.happy && Date.now() - lastBlink > 2600 && holdMs > 900) {
+          later(rnd(300, holdMs - 700), () => {
+            lastBlink = Date.now();
+            blinkOnce();
+          });
+        }
+        later(holdMs, () => {
+          const next = cur.happy ? gazeFrom({ gx: 9, gy: 9 }) : Math.random() < 0.32 ? { happy: true, gx: 0, gy: 0 } : gazeFrom(cur);
+          const swap = next.happy !== cur.happy;
+          if (swap) eyes.go(next.happy ? WALK_FACE.happy : WALK_FACE.neutral, true);
+          glide(next.gx, next.gy, swap ? MORPH : T.glance.glide);
+          cur = next;
+          later(swap ? MORPH : T.glance.glide, eyeStep);
+        });
+      };
+      eyeStep();
+      let openMouth = false;
+      const mouthStep = () =>
+        later(openMouth ? rnd(1100, 1400) : rnd(1700, 2000), () => {
+          openMouth = !openMouth;
+          mouth.go(openMouth ? WALK_FACE.open : WALK_FACE.smile, true);
+          later(MORPH, mouthStep);
+        });
+      mouthStep();
+    } else {
+      // Standing: blinks every few seconds and calm glances, scaled by the mood.
+      glide(0, 0, MORPH);
+      if (blinkable) {
+        const blinkStep = () =>
+          later(rnd(T.blinkEvery[0], T.blinkEvery[1]), () => {
+            blinkOnce();
+            if (Math.random() < T.doubleBlink) later(close + hold + open + 120, blinkOnce);
+            blinkStep();
+          });
+        blinkStep();
+      }
+      if (gazeAmt > 0.05) {
+        const { wait, hold: h, x, y, glide: ms } = T.glance;
+        const glanceStep = () =>
+          later(rnd(wait[0], wait[1]), () => {
+            const side = Math.random() < 0.5 ? -1 : 1;
+            glide(side * rnd(x[0], x[1]) * gazeAmt, rnd(y[0], y[1]) * gazeAmt, ms);
+            later(ms + rnd(h[0], h[1]), () => {
+              glide(0, 0, ms);
+              later(ms, glanceStep);
+            });
+          });
+        glanceStep();
+      }
+    }
+    return () => {
+      on = false;
+      timers.forEach(clearTimeout);
+    };
+  }, [live, walkFace, blinkable, gazeAmt, eyes, mouth, gx, gy, blink]);
+
+  // --- layout -------------------------------------------------------------------------------
+  const px = (x: number) => (x - VX) * k;
+  const py = (y: number) => (y - VY) * k;
+  const origin = (x: number, y: number) => ({ transformOrigin: [px(x), py(y), 0] as [number, number, number] });
+  const look: Look = { gx, gy, look: lookX };
+  const { leg, arm } = JOINT;
+  const legView = (i: 0 | 1, thigh: AnyStyle, shin: AnyStyle, foot: AnyStyle) => {
+    const [x, y] = JOINT.hip[i];
+    const w = leg.width * k;
+    return (
+      <Bone x={px(x)} y={py(y)} len={leg.len * k} w={w} color={leg.colour} style={thigh}>
+        <Bone x={w / 2} y={leg.len * k + w / 2} len={leg.len * k} w={w} color={leg.colour} style={shin}>
+          <Foot len={leg.len * k} f={leg.foot * k} w={w} color={leg.colour} style={foot} />
+        </Bone>
+      </Bone>
+    );
+  };
+  const armView = (i: 0 | 1, upper: AnyStyle, fore: AnyStyle) => {
+    const [x, y] = JOINT.shoulder[i];
+    const w = arm.width * k;
+    return (
+      <Bone x={px(x)} y={py(y)} len={arm.upper * k} w={w} color={arm.colour} style={upper}>
+        <Bone x={w / 2} y={arm.upper * k + w / 2} len={arm.fore * k} w={w} color={arm.colour} style={fore} />
+      </Bone>
+    );
+  };
+  const eye = (side: 'left' | 'right') => {
+    const t = (part: string) => idx(EYES, `eye-${side}-${part}`);
+    return (
+      <G key={side}>
+        <Shape m={eyes.m} fam={EYES} i={t('white-shape')} />
+        <G clipPath={`url(#${uid}${side}w)`}>
+          <Shape m={eyes.m} fam={EYES} i={t('pupil-shape')} pupil={look} />
+        </G>
+        <G clipPath={`url(#${uid}${side}l)`}>
+          <Shape m={eyes.m} fam={EYES} i={t('lid-skin')} blink={blink} />
+        </G>
+        <Shape m={eyes.m} fam={EYES} i={t('lash')} blink={blink} />
+        <Shape m={eyes.m} fam={EYES} i={t('brow-shape')} />
+      </G>
+    );
+  };
+  const box = head ? { width: size, height: (size * HEAD[3]) / HEAD[2] } : { width: size, height: (size * VH) / VW };
+  // Head only: the whole figure's frame, shifted so the crop lands in the box.
+  const frame = head
+    ? { position: 'absolute' as const, left: (VX - HEAD[0]) * k, top: (VY - HEAD[1]) * k, width: VW * k, height: VH * k }
+    : StyleSheet.absoluteFill;
+
+  // The hands rest at 8:00 (clear of the face), or show `time`. A real time can point anywhere, so then the
+  // hands go under the eyes and mouth instead of over them.
+  const turn = time ? [((time.getHours() % 12) + time.getMinutes() / 60) * 30, time.getMinutes() * 6] : [ART.handShort.rest, ART.handLong.rest];
+  const hands = (
+    <Layer k={k}>
+      {[ART.handShort, ART.handLong].map((h, i) => (
+        <G key={i} transform={`rotate(${turn[i]} ${PX} ${PY})`}>
+          {paths(h.paths)}
+        </G>
+      ))}
+      {paths(ART.hub)}
+    </Layer>
   );
 
-  const body = (
-    <Animated.View style={[box, origin(200, 400), whole]} accessible accessibilityRole="image" accessibilityLabel={accessibilityLabel}>
-      {art}
-    </Animated.View>
+  const figure = (
+    <View style={[box, head && styles.crop]} accessible accessibilityRole="image" accessibilityLabel={accessibilityLabel}>
+     <View pointerEvents="none" style={frame}>
+      {!head && (
+        <Layer k={k} style={[origin(SH.cx, SH.cy), shadow]}>
+          <Ellipse cx={SH.cx} cy={SH.cy} rx={SH.rx} ry={SH.ry} fill={SH.colour} fillOpacity={SH.opacity} />
+        </Layer>
+      )}
+      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, origin(SH.cx, SH.cy), rattle]}>
+      {alarm && !head && (
+        <Layer k={k} style={flash}>
+          <G transform={`translate(${ALARM.offset[0]} ${ALARM.offset[1]})`}>
+            {ALARM_LINES.map((d, i) => (
+              <Path key={i} d={d} fill="none" stroke={ALARM_SUN} strokeWidth={4} strokeLinecap="round" />
+            ))}
+            {ALARM_BOLTS.map((d, i) => (
+              <Path key={`b${i}`} d={d} fill={ALARM_SUN} />
+            ))}
+          </G>
+        </Layer>
+      )}
+      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, origin(PX, PY), body]}>
+        {!head && armView(0, upperL, foreL)}
+        {!head && legView(0, thighL, shinL, footL)}
+        {!head && legView(1, thighR, shinR, footR)}
+        <Layer k={k} style={[origin(...PIVOT.bellLeft), bellL]}>{paths(ART.bellLeft)}</Layer>
+        <Layer k={k} style={[origin(...PIVOT.bellRight), bellR]}>{paths(ART.bellRight)}</Layer>
+        <Layer k={k}>{paths(ART.head)}</Layer>
+        {time && hands}
+        <Layer k={k} box={EYE_BOX}>
+          <Defs>
+            {(['left', 'right'] as const).map(side => (
+              <Fragment key={side}>
+                <ClipPath id={`${uid}${side}w`}>
+                  <Shape m={eyes.m} fam={EYES} i={idx(EYES, `eye-${side}-white-shape`)} clip />
+                </ClipPath>
+                <ClipPath id={`${uid}${side}l`}>
+                  <Shape m={eyes.m} fam={EYES} i={idx(EYES, `eye-${side}-lid-clip-shape`)} clip />
+                </ClipPath>
+              </Fragment>
+            ))}
+          </Defs>
+          {eye('left')}
+          {eye('right')}
+        </Layer>
+        <Layer k={k} box={MOUTH_BOX}>
+          <Defs>
+            <ClipPath id={`${uid}m`}>
+              <Shape m={mouth.m} fam={MOUTH} i={idx(MOUTH, 'mouth-shape')} clip />
+            </ClipPath>
+          </Defs>
+          <Shape m={mouth.m} fam={MOUTH} i={idx(MOUTH, 'mouth-shape')} />
+          <G clipPath={`url(#${uid}m)`}>
+            <Shape m={mouth.m} fam={MOUTH} i={idx(MOUTH, 'mouth-tongue')} />
+          </G>
+        </Layer>
+        {!time && hands}
+        {!head && armView(1, upperR, foreR)}
+      </Animated.View>
+      </Animated.View>
+     </View>
+    </View>
   );
-  if (!onPress) return <View style={box}>{body}</View>;
+  if (!onPress) return figure;
   return (
     <Pressable onPress={onPress} style={box} accessibilityRole="button" accessibilityLabel={accessibilityLabel}>
-      {body}
+      {figure}
     </Pressable>
   );
 }
+
+const styles = StyleSheet.create({ crop: { overflow: 'hidden' } });

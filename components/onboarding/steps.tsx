@@ -368,6 +368,7 @@ function Time({ draft, set, next }: StepProps) {
         <Page footer={<Cta label={t('onboarding.continue')} onPress={next} />}>
             <Title title={t('onboarding.time.title')} />
             <Animated.View entering={enter(1)} style={s.wheels}>
+                <View style={s.band} pointerEvents="none" />
                 <WheelPicker data={HOURS} selectedIndex={draft.hours} onIndexChange={hours => set({ hours })} style={s.wheel} />
                 <Text style={s.colon}>:</Text>
                 <WheelPicker data={MINUTES} selectedIndex={draft.minutes} onIndexChange={minutes => set({ minutes })} style={s.wheel} />
@@ -730,8 +731,8 @@ const s = StyleSheet.create({
         margin: Spacing.md,
         marginTop: 0,
         borderRadius: BorderRadius['2xl'],
-        backgroundColor: Colors.primary,
-        paddingVertical: Spacing.xl,
+        backgroundColor: '#F3F5F8', // the white wake-up flow's Mist (constants/white.ts)
+        paddingBottom: Spacing.md,
         overflow: 'hidden',
     },
     gameBody: { flex: 1, justifyContent: 'space-between' },
@@ -741,6 +742,7 @@ const s = StyleSheet.create({
 
     wheels: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm, marginBottom: Spacing.xxl },
     wheel: { width: 96 },
+    band: { position: 'absolute', left: 0, right: 0, top: '50%', height: 44, marginTop: -22, borderRadius: 12, backgroundColor: Colors.ink100 },
     colon: { fontFamily: FontFamily.displayBold, fontSize: 40, color: Colors.ink900 },
     beds: { flexDirection: 'row', justifyContent: 'space-between', gap: Spacing.sm },
     bed: { flex: 1, alignItems: 'center', paddingVertical: Spacing.md, borderRadius: BorderRadius.md },

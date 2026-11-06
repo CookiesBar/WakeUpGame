@@ -26,6 +26,13 @@ export type WakeCheckOutcome = 'pending' | 'awake' | 'missed';
 export const wakeCheckOutcome = (firesAt: number, now: number, windowMs: number): WakeCheckOutcome =>
     now < firesAt ? 'pending' : now < firesAt + windowMs ? 'awake' : 'missed';
 
+/**
+ * A check that rings out unanswered makes the alarm ring again, the whole game. Opening the app up to this long
+ * after the check rang out still starts that game (the re-ring keeps going while its Stop is tapped); later, it's over.
+ */
+export const RING_AGAIN_MS = 30 * 60 * 1000;
+export const ringingAgain = (firesAt: number, now: number, windowMs: number): boolean => now < firesAt + windowMs + RING_AGAIN_MS;
+
 /** One notch harder: math level first, then more steps. null = already at the top. */
 export function harder<T extends Difficulty>(alarm: T): T | null {
     const level = alarm.mathLevel ?? DEFAULT_MATH_LEVEL;

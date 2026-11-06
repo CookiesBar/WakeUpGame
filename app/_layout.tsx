@@ -12,7 +12,7 @@ import { router, Stack, usePathname } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { AppState, StyleSheet, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -22,7 +22,17 @@ import PaywallGate from '@/components/PaywallGate';
 import { Colors as WakeyColors } from '@/constants/wakeyTheme';
 import { AlarmProvider } from '@/contexts/AlarmContext';
 import { LocaleProvider } from '@/contexts/LocaleContext';
-import { BACKUP_WINDOW_MS, processWakeChecks, stopAlarmKitAlert } from '@/utils/notifications';
+import {
+  answerWakeCheck,
+  BACKUP_WINDOW_MS,
+  processWakeChecks,
+  setupWakeCheckButtons,
+  stopAlarmKitAlert,
+  takeAlarmKitAnswers,
+  takeRingAgain,
+  WAKE_NO,
+  WAKE_YES,
+} from '@/utils/notifications';
 import { needsPaywall } from '@/utils/revenueCat';
 import { initializeAudio, playAlarmSound } from '@/utils/sounds';
 
@@ -39,23 +49,24 @@ const ONBOARDING_COMPLETE_KEY = 'hasSeenOnboarding';
 // Prevent splash screen from auto-hiding
 SplashScreen.preventAutoHideAsync();
 
-// Handle alarm notification - navigate to full-screen alarm screen
-const handleAlarmNotification = (notification: Notifications.Notification) => {
-  const data = notification.request.content.data;
-  if (data?.alarmId) {
-    // Play alarm sound; the in-app sound replaces a ringing AlarmKit alert
-    stopAlarmKitAlert();
-    playAlarmSound(data.soundUri as string | undefined, data.gradualVolume === true);
+type RingData = { alarmId: string; soundUri?: string; gradualVolume?: boolean; label?: string };
 
-    // Navigate to the full-screen ring + wake-up game
-    router.push({
-      pathname: '/ring',
-      params: {
-        alarmId: data.alarmId as string,
-        label: (data.label as string | undefined) ?? '',
-      },
-    });
-  }
+const ringData = (notification: Notifications.Notification): RingData => {
+  const data = notification.request.content.data ?? {};
+  return {
+    alarmId: data.alarmId as string,
+    soundUri: data.soundUri as string | undefined,
+    gradualVolume: data.gradualVolume === true,
+    label: data.label as string | undefined,
+  };
+};
+
+// Open the full-screen ring + wake-up game
+const openRing = ({ alarmId, soundUri, gradualVolume, label }: RingData) => {
+  // Play alarm sound; the in-app sound replaces a ringing AlarmKit alert
+  stopAlarmKitAlert();
+  playAlarmSound(soundUri, gradualVolume === true);
+  router.push({ pathname: '/ring', params: { alarmId, label: label ?? '' } });
 };
 
 export default function RootLayout() {
@@ -77,14 +88,18 @@ export default function RootLayout() {
   const lastHandledAt = useRef<Map<string, number>>(new Map());
   // A tap that launches the app arrives before the Stack is mounted: hold it until then.
   const navReady = useRef(false);
-  const pendingAlarm = useRef<Notifications.Notification | null>(null);
+  const pendingRing = useRef<RingData | null>(null);
 
   const [locked, setLocked] = useState(false);
-  // Never cover the ring screen: a non-subscriber couldn't stop the alarm.
-  const pathname = usePathname();
 
   // Handle alarm notification with deduplication
   const handleAlarmNotificationSafe = (notification: Notifications.Notification) => {
+    // The alarm ringing again after an unanswered "Still awake?": the whole game.
+    const again = notification.request.content.data?.ringAgainId as string | undefined;
+    if (again) {
+      ringAgain({ ...ringData(notification), alarmId: again });
+      return;
+    }
     // "Still awake?" ringing while the app is open (or tapped) = awake.
     if (notification.request.content.data?.checkAlarmId) {
       processWakeChecks();
@@ -104,8 +119,36 @@ export default function RootLayout() {
     lastHandledAt.current.set(ring, now);
     console.log('Handling notification for alarm:', alarmId);
 
-    if (navReady.current) handleAlarmNotification(notification);
-    else pendingAlarm.current = notification;
+    queueRing(ringData(notification));
+  };
+
+  const queueRing = (data: RingData) => {
+    if (navReady.current) openRing(data);
+    else pendingRing.current = data;
+  };
+
+  // Its notification, the app opening while it rings, and the next 30 s burst all ask: open the game once.
+  const ringAgain = (data: RingData) => {
+    const key = `${data.alarmId}@again`;
+    const last = lastHandledAt.current.get(key);
+    if (last !== undefined && Date.now() - last < BACKUP_WINDOW_MS) return;
+    lastHandledAt.current.set(key, Date.now());
+    queueRing(data);
+  };
+
+  // "Still awake?" Yes / No. No: the wake-up game again, now.
+  const answer = (checkAlarmId: string, awake: boolean) =>
+    answerWakeCheck(checkAlarmId, awake).then(alarm => {
+      if (alarm) queueRing({ alarmId: alarm.id, soundUri: alarm.soundUri ?? undefined, gradualVolume: alarm.gradualVolume, label: alarm.label });
+    });
+
+  const handleResponse = (response: Notifications.NotificationResponse) => {
+    const checkAlarmId = response.notification.request.content.data?.checkAlarmId as string | undefined;
+    if (checkAlarmId && (response.actionIdentifier === WAKE_YES || response.actionIdentifier === WAKE_NO)) {
+      answer(checkAlarmId, response.actionIdentifier === WAKE_YES);
+      return;
+    }
+    handleAlarmNotificationSafe(response.notification);
   };
 
   useEffect(() => {
@@ -139,8 +182,38 @@ export default function RootLayout() {
     }
   }, [fontsLoaded]);
 
+  // Yes / No tapped on a "Still awake?" AlarmKit alert waits natively until the app reads it. Then settle the
+  // checks: one that rang out unanswered while its alarm still rings again opens the game.
+  useEffect(() => {
+    const collect = () => {
+      takeAlarmKitAnswers().forEach(([checkAlarmId, awake]) => answer(checkAlarmId, awake));
+      processWakeChecks().then(() =>
+        takeRingAgain().forEach(alarm =>
+          ringAgain({ alarmId: alarm.id, soundUri: alarm.soundUri ?? undefined, gradualVolume: alarm.gradualVolume, label: alarm.label }),
+        ),
+      );
+    };
+    collect();
+    let again: ReturnType<typeof setTimeout> | undefined;
+    const sub = AppState.addEventListener('change', state => {
+      if (state !== 'active') return;
+      collect();
+      // ponytail: No opens the app and its intent can land just after 'active', so look once more.
+      // A native event would close this race for good if 1.5 s ever proves too short.
+      clearTimeout(again);
+      again = setTimeout(collect, 1500);
+    });
+    return () => {
+      sub.remove();
+      clearTimeout(again);
+    };
+    // Once: `answer` only reaches refs and module functions.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Set up notification listeners
   useEffect(() => {
+    setupWakeCheckButtons();
     // When notification is received while app is open
     notificationListener.current = Notifications.addNotificationReceivedListener(notification => {
       console.log('Notification received:', notification);
@@ -150,7 +223,7 @@ export default function RootLayout() {
     // When user interacts with notification
     responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
       console.log('Notification response:', response);
-      handleAlarmNotificationSafe(response.notification);
+      handleResponse(response);
     });
 
     // Check if app was opened from notification (only on initial mount)
@@ -162,7 +235,7 @@ export default function RootLayout() {
       const deliveredAt = date < 1e12 ? date * 1000 : date;
       if (response && Date.now() - deliveredAt < BACKUP_WINDOW_MS) {
         console.log('App opened from notification:', response);
-        handleAlarmNotificationSafe(response.notification);
+        handleResponse(response);
       }
       Notifications.clearLastNotificationResponse();
     });
@@ -181,9 +254,9 @@ export default function RootLayout() {
   const stackMounted = !!fontsLoaded && isOnboardingComplete === true && !showOnboarding;
   useEffect(() => {
     navReady.current = stackMounted;
-    if (stackMounted && pendingAlarm.current) {
-      handleAlarmNotification(pendingAlarm.current);
-      pendingAlarm.current = null;
+    if (stackMounted && pendingRing.current) {
+      openRing(pendingRing.current);
+      pendingRing.current = null;
     }
   }, [stackMounted]);
 
@@ -228,8 +301,7 @@ export default function RootLayout() {
             <Stack.Screen
               name="alarm/[id]"
               options={{
-                animation: 'slide_from_bottom',
-                animationDuration: 200, // Faster animation
+                animation: 'slide_from_bottom', // at the system's default speed, like Settings' push (no custom duration)
               }}
             />
             <Stack.Screen
@@ -254,14 +326,21 @@ export default function RootLayout() {
               }}
             />
           </Stack>
-          {locked && pathname !== '/ring' && (
-            <View style={StyleSheet.absoluteFill}>
-              <PaywallGate onUnlocked={() => setLocked(false)} />
-            </View>
-          )}
+          {locked && <PaywallOverlay onUnlocked={() => setLocked(false)} />}
         </AlarmProvider>
       </GestureHandlerRootView>
     </LocaleProvider>
+  );
+}
+
+// Its own component so only this re-renders on a route change, not the whole app mid-transition.
+function PaywallOverlay({ onUnlocked }: { onUnlocked: () => void }) {
+  // Never cover the ring screen: a non-subscriber couldn't stop the alarm.
+  if (usePathname() === '/ring') return null;
+  return (
+    <View style={StyleSheet.absoluteFill}>
+      <PaywallGate onUnlocked={onUnlocked} />
+    </View>
   );
 }
 

@@ -1,282 +1,120 @@
-// The curved time wheel: minute ticks on a wide arc you drag 1:1, or flick to travel hours.
-// Release projects the flick (Apple's deceleration formula), rounds to a whole minute, then a
-// spring that keeps the finger's velocity lands it. A tick every 5 min, a bump every hour.
-import * as Haptics from 'expo-haptics';
-import { useCallback, useEffect, useRef, useState } from 'react';
+// Alarm time on Apple-style drums in a white card: hour · minute (· AM/PM), one Mist band across them.
+// A 12-hour clock's hour drum spans 24 h, so rolling 11 → 12 flips AM/PM like iOS.
+// The drums are ~86 animated rows; building them while the editor slides up made it stutter. Until `ready`,
+// the card shows a still copy of each drum's visible rows (same spots, same type); the drums then fade in over it.
+import { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, {
-  cancelAnimation,
-  runOnJS,
-  useAnimatedReaction,
-  useAnimatedStyle,
-  useReducedMotion,
-  useSharedValue,
-  withSequence,
-  withSpring,
-  withTiming,
-  type SharedValue,
-} from 'react-native-reanimated';
+import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
-import { PopView } from '@/components/pop';
-import { LINE, Pop, PopFont } from '@/constants/pop';
+import WheelPicker from '@/components/WheelPicker';
+import { ARRIVE, W, WFont } from '@/constants/white';
 
-const R = 420; // arc radius
-const RAD = (0.4 * Math.PI) / 180; // 0.4° per minute
-const PPM = R * RAD; // px per minute at the top of the arc
-const TOP = 96; // y of the arc's top inside the card
-const SLOTS = 63; // ticks either side of the needle (the arc shows about ±61 min)
-const DECEL = 0.997; // a touch snappier than scroll (0.998)
-// response 0.4 s, damping ratio 0.8: the flick earned a little overshoot.
-const SPRING = { mass: 1, stiffness: (2 * Math.PI / 0.4) ** 2, damping: (4 * Math.PI * 0.8) / 0.4 };
-const HEIGHT = 200;
-const TICK_W = 3.5;
-const TICK_H = 34;
+const ROW = 36;
+const HEIGHT = 180; // = ROW × 5 visible rows, so the centre row sits at HEIGHT / 2
+const pad = (n: number) => String(n).padStart(2, '0');
+const H24 = Array.from({ length: 24 }, (_, i) => pad(i));
+const H12 = Array.from({ length: 12 }, (_, i) => String(i || 12));
+const MINS = Array.from({ length: 60 }, (_, i) => pad(i));
+const AP = ['AM', 'PM'];
+const COLORS = [W.ink, 'rgba(11,13,16,0.3)'] as const;
 
-const wrap = (m: number) => {
-  'worklet';
-  return ((Math.round(m) % 1440) + 1440) % 1440;
-};
-
-function Tick({ slot, pos, cx }: { slot: number; pos: SharedValue<number>; cx: number }) {
-  const style = useAnimatedStyle(() => {
-    const m = Math.floor(pos.value) + slot;
-    const a = (m - pos.value) * RAD;
-    const mm = ((m % 1440) + 1440) % 1440;
-    const hour = mm % 60 === 0;
-    const five = mm % 5 === 0;
-    const fade = Math.pow(Math.max(0, Math.cos(a)), 10) * (hour ? 1 : five ? 0.9 : 0.5);
-    return {
-      opacity: fade,
-      transform: [
-        { translateX: cx + R * Math.sin(a) - TICK_W / 2 },
-        { translateY: TOP + R * (1 - Math.cos(a)) },
-        { rotate: `${a}rad` },
-        { scaleX: (hour ? 3.5 : five ? 2.5 : 1.5) / TICK_W },
-        { scaleY: (hour ? 34 : five ? 20 : 10) / TICK_H },
-      ],
-    };
-  });
-  return <Animated.View style={[styles.tick, style]} />;
-}
-
-function HourLabel({ k, base, pos, cx, text }: { k: number; base: SharedValue<number>; pos: SharedValue<number>; cx: number; text: string }) {
-  const style = useAnimatedStyle(() => {
-    const a = ((base.value + k) * 60 - pos.value) * RAD;
-    const lr = R - 60;
-    return {
-      opacity: Math.abs(a) > 0.5 ? 0 : Math.pow(Math.cos(a), 8),
-      transform: [
-        { translateX: cx + lr * Math.sin(a) - 40 },
-        { translateY: TOP + R - lr * Math.cos(a) - 12 },
-        { rotate: `${a}rad` },
-      ],
-    };
-  });
-  return (
-    <Animated.Text style={[styles.label, style]} numberOfLines={1}>
-      {text}
-    </Animated.Text>
-  );
-}
+const mod = (a: number, n: number) => ((a % n) + n) % n;
+/** Rows at -3…3 from the centre: further out they pass the ±90° edge and vanish. */
+const OFFSETS = [-3, -2, -1, 0, 1, 2, 3];
+// WheelPicker's cylinder at rest (its Row: radius = HEIGHT / 2, one row = ROW / radius rad), as plain styles.
+const ROW_LOOK = OFFSETS.map(d => {
+  const radius = HEIGHT / 2;
+  const a = d * (ROW / radius);
+  return {
+    opacity: 0.35 + 0.65 * Math.cos(a),
+    color: d === 0 ? COLORS[0] : COLORS[1],
+    transform: [{ perspective: 700 }, { translateY: radius * Math.sin(a) }, { rotateX: `${-a}rad` }],
+  };
+});
 
 export interface TimeWheelProps {
   /** Minutes after midnight, 0..1439. */
   minutes: number;
   onChange: (minutes: number) => void;
-  width: number;
-  /** Pupil offset for a Wakey watching the wheel: leans the way the ticks travel. */
-  look?: SharedValue<number>;
-  hourLabel: (hour: number) => string;
-  hint: string;
+  twelveHour: boolean;
   accessibilityLabel: string;
-  accessibilityValue: string;
+  /** False while the screen is still arriving: show the still card, build the drums after. */
+  ready?: boolean;
 }
 
-export default function TimeWheel({ minutes, onChange, width, look, hourLabel, hint, accessibilityLabel, accessibilityValue }: TimeWheelProps) {
-  const reduced = useReducedMotion();
-  const pos = useSharedValue(minutes);
-  const start = useSharedValue(minutes);
-  const base = useSharedValue(Math.floor(minutes / 60));
-  const bump = useSharedValue(1);
-  const [baseHour, setBaseHour] = useState(Math.floor(minutes / 60));
-  const cx = (width - 2 * LINE) / 2;
-
-  // The parent's value changed (alarm loaded): jump there unless it is already where we are.
+export default function TimeWheel({ minutes, onChange, twelveHour, accessibilityLabel, ready = true }: TimeWheelProps) {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  const common = { itemHeight: ROW, style: styles.wheel, textStyle: styles.text, colors: COLORS, accessibilityLabel };
+  // The drums fade in over the still copy, and the copy goes only when the fade has really finished on screen
+  // (not after a guessed delay: building the drums can take longer than any guess on a slow or debug build).
+  const [settled, setSettled] = useState(false);
+  const shown = useSharedValue(0);
   useEffect(() => {
-    if (wrap(pos.value) === minutes) return;
-    cancelAnimation(pos);
-    pos.value = minutes;
-  }, [minutes, pos]);
-
-  // ponytail: one setState per crossed minute, trailing-throttled to ~30 fps while it spins.
-  const emitAt = useRef(0);
-  const trailing = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const hapticAt = useRef(0);
-  const onMinute = useCallback(
-    (cur: number, prev: number) => {
-      const now = Date.now();
-      if (now - hapticAt.current > 30) {
-        const lo = Math.min(cur, prev);
-        const hi = Math.max(cur, prev);
-        const hour = Math.floor(hi / 60) * 60 > lo;
-        const five = Math.floor(hi / 5) * 5 > lo;
-        if (hour) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-        else if (five) Haptics.selectionAsync().catch(() => {});
-        if (hour || five) hapticAt.current = now;
-      }
-      const value = ((cur % 1440) + 1440) % 1440;
-      if (trailing.current) clearTimeout(trailing.current);
-      if (now - emitAt.current > 32) {
-        emitAt.current = now;
-        onChange(value);
-      } else {
-        trailing.current = setTimeout(() => {
-          emitAt.current = Date.now();
-          onChange(value);
-        }, 40);
-      }
-    },
-    [onChange],
-  );
-  useEffect(() => () => {
-    if (trailing.current) clearTimeout(trailing.current);
-  }, []);
-  const landed = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid).catch(() => {});
-  }, []);
-  const onHour = useCallback((h: number) => setBaseHour(h), []);
-
-  useAnimatedReaction(
-    () => Math.round(pos.value),
-    (cur, prev) => {
-      if (prev === null || cur === prev) return;
-      runOnJS(onMinute)(cur, prev);
-    },
-  );
-  useAnimatedReaction(
-    () => Math.floor(pos.value / 60),
-    (h, prev) => {
-      if (h === prev) return;
-      base.value = h;
-      if (prev !== null) bump.value = withSequence(withTiming(1.3, { duration: 90 }), withTiming(1, { duration: 140 }));
-      runOnJS(onHour)(h);
-    },
-  );
-
-  const pan = Gesture.Pan()
-    .activeOffsetX([-8, 8])
-    .failOffsetY([-14, 14])
-    .onBegin(() => {
-      cancelAnimation(pos); // grab it mid-flight
-    })
-    .onStart(() => {
-      start.value = pos.value;
-    })
-    .onUpdate(e => {
-      pos.value = start.value - e.translationX / PPM;
-      if (look) look.value = Math.max(-16, Math.min(16, e.velocityX * 0.02));
-    })
-    .onEnd(e => {
-      const v = -e.velocityX / PPM; // minutes per second
-      const target = Math.round(pos.value + ((v / 1000) * DECEL) / (1 - DECEL));
-      if (reduced) pos.value = target;
-      else
-        pos.value = withSpring(target, { ...SPRING, velocity: v }, finished => {
-          if (finished) runOnJS(landed)();
-        });
-      if (look) look.value = withTiming(0, { duration: 600 });
-    })
-    .onFinalize((_, success) => {
-      // A touch that never became a drag (or got cancelled) still lands on a whole minute.
-      if (!success) pos.value = reduced ? Math.round(pos.value) : withSpring(Math.round(pos.value), SPRING);
+    if (!ready) return;
+    shown.value = withTiming(1, { duration: 180, easing: ARRIVE }, done => {
+      if (done) runOnJS(setSettled)(true);
     });
-
-  const head = useAnimatedStyle(() => ({ transform: [{ scale: bump.value }] }));
-  const step = (delta: number) => {
-    cancelAnimation(pos);
-    pos.value = Math.round(pos.value) + delta;
-  };
-
+  }, [ready, shown]);
+  const fade = useAnimatedStyle(() => ({ opacity: shown.value }));
+  // Each drum's visible rows, by offset from the centre: the same rows the live drums show at rest.
+  const near = (pick: (d: number) => string | undefined) => OFFSETS.map(d => [d, pick(d)] as const).filter((r): r is readonly [number, string] => !!r[1]);
+  const still = [
+    near(d => (twelveHour ? H12[mod(h + d, 12)] : H24[mod(h + d, 24)])),
+    near(d => MINS[mod(m + d, 60)]),
+    ...(twelveHour ? [near(d => AP[(h < 12 ? 0 : 1) + d])] : []),
+  ];
   return (
-    <PopView style={[styles.card, { width }]} depth={5}>
-      <GestureDetector gesture={pan}>
-        <Animated.View
-          style={StyleSheet.absoluteFill}
-          accessible
-          accessibilityRole="adjustable"
-          accessibilityLabel={accessibilityLabel}
-          accessibilityValue={{ text: accessibilityValue }}
-          accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
-          onAccessibilityAction={e => step(e.nativeEvent.actionName === 'increment' ? 5 : -5)}
-        >
-          {Array.from({ length: SLOTS * 2 + 1 }, (_, i) => (
-            <Tick key={i} slot={i - SLOTS} pos={pos} cx={cx} />
+    <View style={styles.card}>
+      <View style={styles.band} pointerEvents="none" />
+      {/* The still time stays underneath until the drums have faded in over it, so the time never blinks out. */}
+      {!settled && (
+        <View style={[styles.wheels, styles.fill]}>
+          {still.map((rows, i) => (
+            <View key={i} style={[styles.wheel, styles.stillCol]}>
+              {rows.map(([d, v]) => (
+                <Text key={d} style={[styles.stillRow, styles.text, ROW_LOOK[d + 3]]}>{v}</Text>
+              ))}
+            </View>
           ))}
-          {[-1, 0, 1, 2].map(k => (
-            <HourLabel key={k} k={k} base={base} pos={pos} cx={cx} text={hourLabel((((baseHour + k) % 24) + 24) % 24)} />
-          ))}
-          <View style={[styles.needle, { left: cx - 4 }]} pointerEvents="none" />
-          <Animated.View style={[styles.head, { left: cx - 12 }, head]} pointerEvents="none" />
-          <Text style={styles.hint} pointerEvents="none">
-            {hint}
-          </Text>
+        </View>
+      )}
+      {ready && (
+        <Animated.View style={[styles.wheels, styles.fill, fade]}>
+          <WheelPicker {...common} data={twelveHour ? H12 : H24} cycle={24} selectedIndex={h} onIndexChange={i => onChange(i * 60 + m)} />
+          <WheelPicker {...common} data={MINS} selectedIndex={m} onIndexChange={i => onChange(h * 60 + i)} />
+          {twelveHour && (
+            <WheelPicker
+              {...common}
+              data={AP}
+              infinite={false}
+              selectedIndex={h < 12 ? 0 : 1}
+              onIndexChange={i => onChange(((h % 12) + 12 * i) * 60 + m)}
+            />
+          )}
         </Animated.View>
-      </GestureDetector>
-    </PopView>
+      )}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  card: { height: HEIGHT, borderRadius: 30, backgroundColor: Pop.blue, overflow: 'hidden' },
-  tick: {
+  card: { height: HEIGHT, borderRadius: 24, backgroundColor: W.paper, overflow: 'hidden', justifyContent: 'center' },
+  band: {
     position: 'absolute',
-    left: 0,
-    top: 0,
-    width: TICK_W,
-    height: TICK_H,
-    borderRadius: 2,
-    backgroundColor: Pop.white,
-    transformOrigin: [TICK_W / 2, 0, 0],
+    left: 12,
+    right: 12,
+    top: '50%',
+    height: ROW,
+    marginTop: -ROW / 2,
+    borderRadius: 10,
+    backgroundColor: W.mist,
   },
-  label: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    width: 80,
-    textAlign: 'center',
-    fontFamily: PopFont.heavy,
-    fontSize: 18,
-    color: Pop.white,
-  },
-  needle: {
-    position: 'absolute',
-    top: 22,
-    width: 8,
-    height: 92,
-    borderRadius: 999,
-    borderWidth: LINE,
-    borderColor: Pop.ink,
-    backgroundColor: Pop.sun,
-  },
-  head: {
-    position: 'absolute',
-    top: 10,
-    width: 24,
-    height: 24,
-    borderRadius: 999,
-    borderWidth: LINE,
-    borderColor: Pop.ink,
-    backgroundColor: Pop.sun,
-  },
-  hint: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 12,
-    textAlign: 'center',
-    fontFamily: PopFont.bold,
-    fontSize: 12,
-    color: Pop.onBlue,
-  },
+  wheels: { flexDirection: 'row', justifyContent: 'center', gap: 4 },
+  fill: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center' },
+  wheel: { width: 72 },
+  // Matches WheelPicker's rows exactly, so the swap to the live drums doesn't move anything.
+  stillCol: { height: HEIGHT },
+  stillRow: { position: 'absolute', left: 0, right: 0, top: HEIGHT / 2 - ROW / 2, height: ROW, lineHeight: ROW, textAlign: 'center', fontVariant: ['tabular-nums'] },
+  text: { fontFamily: WFont.semibold, fontSize: 26, letterSpacing: -0.26 },
 });

@@ -57,6 +57,7 @@
       [
         "expo-notifications",
         {
+          "largeIcon": "./assets/images/notification-wakey.png",
           "sounds": [
             "./assets/sounds/fast_alarm.wav",
             "./assets/sounds/slow_alarm.wav"

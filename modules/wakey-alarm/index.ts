@@ -9,6 +9,10 @@ interface WakeyAlarmNative {
     authorizationState(): AlarmKitAuth;
     requestAuthorization(): Promise<AlarmKitAuth>;
     schedule(id: string, epochMs: number, title: string, stopText: string, sound: string | null, rearm: boolean): Promise<void>;
+    /** Builds from before the Yes / No check lack these three. */
+    scheduleCheck?(id: string, epochMs: number, title: string, yesText: string, noText: string, sound: string | null, checkId: string): Promise<void>;
+    linkToCheck?(checkId: string, id: string): void;
+    takeCheckAnswers?(): Record<string, 'yes' | 'no'>;
     cancel(id: string): void;
     stopAlerting(): void;
 }

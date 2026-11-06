@@ -1,281 +1,214 @@
-// Home (v3): Wakey's mood is your mornings. Next alarm hero, Streak v2 week, alarm cards.
+// Home (v3 white): the streak card with Wakey's face on top, then the alarms. No next-alarm card.
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import StreakCard from '@/components/StreakCard';
+import PlusOne, { takePlusOne } from '@/components/PlusOne';
 import Wakey, { type Mood } from '@/components/Wakey';
-import { PopButton, PopSwitch, PopView } from '@/components/pop';
-import { Pop, PopFont } from '@/constants/pop';
+import { CtaButton, Flame, Tap, WSwitch, WeekDots, rise } from '@/components/white';
+import { W, WFont } from '@/constants/white';
 import { useAlarms } from '@/contexts/AlarmContext';
 import { useLocale } from '@/contexts/LocaleContext';
+import { strings } from '@/i18n';
 import { formatClock, repeatText } from '@/utils/clockFormat';
 import { checkAndShowRating } from '@/utils/rating';
 import { streakV2, type StreakInfo } from '@/utils/stats';
 import { getWakeLog, type Alarm } from '@/utils/storage';
-import { nextAlarmDate, untilParts } from '@/utils/time';
-import { DEFAULT_MATH_LEVEL, DEFAULT_STEPS } from '@/utils/wakeCheck';
-
-const hm = (alarm: Alarm) => alarm.time.split(':').map(Number) as [number, number];
-
-/** The enabled alarm that rings first, and when. */
-function nextUp(alarms: Alarm[], now: Date): { alarm: Alarm; at: Date } | null {
-  let best: { alarm: Alarm; at: Date } | null = null;
-  for (const alarm of alarms) {
-    if (!alarm.enabled) continue;
-    const [h, m] = hm(alarm);
-    const at = nextAlarmDate(h, m, alarm.days, now);
-    if (!best || at < best.at) best = { alarm, at };
-  }
-  return best;
-}
-
-/** Re-render every 30 s so "in 7h 12m" stays true. */
-function useNow(): Date {
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(new Date()), 30_000);
-    return () => clearInterval(timer);
-  }, []);
-  return now;
-}
 
 export default function HomeScreen() {
   const { alarms, loading, toggleAlarmEnabled } = useAlarms();
   const { t } = useLocale();
   const insets = useSafeAreaInsets();
-  const now = useNow();
   const [info, setInfo] = useState<StreakInfo | null>(null);
-  const [tapMood, setTapMood] = useState<Mood | null>(null);
-  const [wave, setWave] = useState(0);
+  // Back from the wake-up game: +1 plays over Home, with the fresh streak (today included).
+  const [plusOne, setPlusOne] = useState<StreakInfo | null>(null);
 
   useFocusEffect(
     useCallback(() => {
-      checkAndShowRating();
-      getWakeLog().then(log => setInfo(streakV2(log, new Date())));
+      const celebrate = takePlusOne();
+      if (!celebrate) checkAndShowRating(); // after +1 instead, so the review prompt never covers it
+      getWakeLog().then(log => {
+        const fresh = streakV2(log, new Date());
+        setInfo(fresh);
+        if (celebrate) setPlusOne(fresh);
+      });
     }, []),
   );
-
-  useEffect(() => {
-    if (!tapMood) return;
-    const timer = setTimeout(() => setTapMood(null), 1400);
-    return () => clearTimeout(timer);
-  }, [tapMood, wave]);
 
   if (loading) {
     return (
       <View style={[styles.screen, styles.center]}>
-        <ActivityIndicator size="large" color={Pop.blue} />
+        <ActivityIndicator size="large" color={W.blue} />
       </View>
     );
   }
 
-  const next = nextUp(alarms, now);
-  const hour = now.getHours();
-  const greeting = hour < 5 || hour >= 18 ? t('home.greetNight') : hour < 12 ? t('home.greetMorning') : t('home.greetAfternoon');
-  const yesterdayMissed = info ? info.week[(info.today + 6) % 7] === 'missed' : false;
-  // Wakey's mood is your mornings.
-  const mood: Mood = tapMood ?? (!next ? 'sleepy' : yesterdayMissed ? 'snoozed' : 'awake');
-
   return (
     <View style={styles.screen}>
-      <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 32 }]} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.flex} contentContainerStyle={{ paddingTop: insets.top + 8, paddingBottom: insets.bottom + 32 }} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
-          <View style={styles.headerText}>
-            <Text style={styles.date}>{now.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}</Text>
-            <Text style={styles.greeting} accessibilityRole="header">{greeting}</Text>
-          </View>
-          <PopButton style={styles.round} depth={3} onPress={() => router.push('/settings')} accessibilityLabel={t('home.settings')}>
-            <Ionicons name="options-outline" size={22} color={Pop.ink} />
-          </PopButton>
+          <Tap style={styles.round} onPress={() => router.push('/settings')} accessibilityLabel={t('home.settings')}>
+            <Ionicons name="settings-outline" size={22} color={W.ink} />
+          </Tap>
+          <Tap style={[styles.round, styles.add]} onPress={() => router.push('/alarm/new')} accessibilityLabel={t('edit.addTitle')}>
+            <Ionicons name="add" size={26} color={W.paper} />
+          </Tap>
         </View>
 
-        <Hero
-          next={next}
-          now={now}
-          mood={mood}
-          wave={wave}
-          info={info}
-          onWakey={() => {
-            setTapMood('happy');
-            setWave(w => w + 1);
+        {info && (
+          <Animated.View entering={rise()}>
+            <Streak info={info} />
+          </Animated.View>
+        )}
+
+        <Animated.View entering={rise(40)} style={styles.section}>
+          <Text style={styles.h2} accessibilityRole="header">{t('home.alarms')}</Text>
+          {alarms.length ? (
+            <View style={styles.group}>
+              {alarms.map((alarm, i) => (
+                <AlarmRow key={alarm.id} alarm={alarm} first={i === 0} onToggle={() => toggleAlarmEnabled(alarm.id)} />
+              ))}
+            </View>
+          ) : (
+            <View style={[styles.group, styles.empty]}>
+              <Text style={styles.emptyText}>{t('home.noAlarm')}</Text>
+              <CtaButton label={t('home.addFirst')} onPress={() => router.push('/alarm/new')} style={styles.emptyButton} />
+            </View>
+          )}
+        </Animated.View>
+      </ScrollView>
+      {plusOne && (
+        <PlusOne
+          info={plusOne}
+          onClose={() => {
+            setPlusOne(null);
+            checkAndShowRating();
           }}
         />
-
-        {info && <StreakCard info={info} containerStyle={styles.streakBox} />}
-
-        <View style={styles.sectionRow}>
-          <Text style={styles.section} accessibilityRole="header">{t('home.alarms')}</Text>
-          <PopButton style={[styles.round, styles.add]} depth={3} onPress={() => router.push('/alarm/new')} accessibilityLabel={t('edit.addTitle')}>
-            <Ionicons name="add" size={26} color={Pop.ink} />
-          </PopButton>
-        </View>
-
-        <View style={styles.list}>
-          {alarms.map(alarm => (
-            <AlarmCard key={alarm.id} alarm={alarm} onToggle={() => toggleAlarmEnabled(alarm.id)} />
-          ))}
-        </View>
-      </ScrollView>
+      )}
     </View>
   );
 }
 
-function Hero({
-  next,
-  now,
-  mood,
-  wave,
-  info,
-  onWakey,
-}: {
-  next: { alarm: Alarm; at: Date } | null;
-  now: Date;
-  mood: Mood;
-  wave: number;
-  info: StreakInfo | null;
-  onWakey: () => void;
-}) {
+/** Now, re-read on every minute boundary (Wakey's clock face shows it). */
+function useMinute(): Date {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    const next = () => {
+      timer = setTimeout(() => {
+        setNow(new Date());
+        next();
+      }, 60_000 - (Date.now() % 60_000) + 50);
+    };
+    next();
+    return () => clearTimeout(timer);
+  }, []);
+  return now;
+}
+
+/** The count, what's next, Wakey glancing around (tap: happy for 1.4 s), and this week. */
+function Streak({ info }: { info: StreakInfo }) {
   const { t } = useLocale();
-  const count = info?.count ?? 0;
-  const bubble = count >= 2 ? t('home.streakDays', { count }) : count === 1 ? t('home.streakOne') : t('home.streakZero');
-  let body;
-  if (next) {
-    const [h, m] = hm(next.alarm);
-    const { time, ap } = formatClock(h, m);
-    const left = untilParts(next.at, now);
-    const until = left.d > 0 ? t('home.inDay', left) : left.h > 0 ? t('home.inHour', left) : t('home.inMin', left);
-    body = (
-      <>
-        <Text style={styles.heroLabel}>{t('home.nextAlarm')}</Text>
-        <View style={styles.heroTimeRow}>
-          <Text style={styles.heroTime} adjustsFontSizeToFit numberOfLines={1}>{time}</Text>
-          {!!ap && <Text style={styles.heroAp}>{ap}</Text>}
-        </View>
-        <Text style={styles.until}>{until}</Text>
-        <Text style={styles.heroSub} numberOfLines={1}>
-          {[next.alarm.label, repeatText(next.alarm.days)].filter(Boolean).join(' · ')}
-        </Text>
-      </>
-    );
-  } else {
-    body = (
-      <>
-        <Text style={styles.heroLabel}>{t('home.nextAlarm')}</Text>
-        <Text style={styles.heroEmpty}>{t('home.noAlarm')}</Text>
-        <PopButton style={styles.heroAdd} depth={3} onPress={() => router.push('/alarm/new')}>
-          <Text style={styles.heroAddText}>{t('home.addFirst')}</Text>
-        </PopButton>
-      </>
-    );
-  }
+  const [tapped, setTapped] = useState(0);
+  const now = useMinute();
+  useEffect(() => {
+    if (!tapped) return;
+    const timer = setTimeout(() => setTapped(0), 1400);
+    return () => clearTimeout(timer);
+  }, [tapped]);
+
+  // Always smiling: glancing around, eyes closed in a grin when tapped.
+  const mood: Mood = tapped ? 'proud' : 'awake';
+  const restIndex = info.week.indexOf('rest');
+  const note =
+    restIndex >= 0
+      ? t('home.restNote', { day: strings().days.short[(restIndex + 1) % 7] })
+      : info.nextMilestone
+        ? t('home.nextBadge', { count: info.nextMilestone - info.count, badge: info.nextMilestone })
+        : t('home.allBadges');
+
   return (
-    <PopView style={styles.hero} containerStyle={styles.heroBox} depth={5}>
-      <View style={styles.heroText}>{body}</View>
-      <View style={styles.heroWakey}>
-        <Wakey size={190} mood={mood} wave={wave} onPress={onWakey} accessibilityLabel={t('home.wakeyA11y')} />
+    <View style={styles.card} accessibilityLabel={t('home.dayStreak')}>
+      <View style={styles.cardTop}>
+        <View style={styles.cardText}>
+          <View style={styles.kicker}>
+            <Flame size={16} />
+            <Text style={styles.kickerText}>{t('home.dayStreak')}</Text>
+          </View>
+          <Text style={styles.count} accessibilityLabel={`${info.count} ${t('home.dayStreak')}`}>{info.count}</Text>
+          <Text style={styles.note}>{note}</Text>
+        </View>
+        <Wakey
+          head
+          size={124}
+          mood={mood}
+          time={now}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft).catch(() => {});
+            setTapped(n => n + 1);
+          }}
+          accessibilityLabel={t('home.wakeyA11y')}
+        />
       </View>
-      <Text style={styles.bubble}>{bubble}</Text>
-    </PopView>
+      <WeekDots info={info} />
+    </View>
   );
 }
 
-function AlarmCard({ alarm, onToggle }: { alarm: Alarm; onToggle: () => void }) {
-  const { t } = useLocale();
-  const [h, m] = hm(alarm);
+function AlarmRow({ alarm, first, onToggle }: { alarm: Alarm; first: boolean; onToggle: () => void }) {
+  const [h, m] = alarm.time.split(':').map(Number);
   const { time, ap } = formatClock(h, m);
-  const off = !alarm.enabled;
-  const tasks = `${t('home.walkTask', { count: alarm.steps ?? DEFAULT_STEPS })} · ${t('home.mathTask', {
-    level: t(`edit.mathLevel_${alarm.mathLevel ?? DEFAULT_MATH_LEVEL}`),
-  })}`;
+  const sub = [alarm.label, repeatText(alarm.days)].filter(Boolean).join(', ');
+  const color = { color: alarm.enabled ? W.ink : W.dim };
   return (
-    <PopButton
-      style={styles.card}
-      haptic="none"
-      onPress={() => router.push(`/alarm/${alarm.id}`)}
-      accessibilityLabel={`${time} ${ap}, ${alarm.label || ''} ${repeatText(alarm.days)}`}
-    >
-      <View style={styles.cardText}>
-        <View style={styles.cardTimeRow}>
-          <Text style={[styles.cardTime, off && styles.off]}>{time}</Text>
-          {!!ap && <Text style={[styles.cardAp, off && styles.off]}>{ap}</Text>}
-        </View>
-        <Text style={[styles.cardSub, off && styles.offSub]} numberOfLines={1}>
-          {[alarm.label, repeatText(alarm.days)].filter(Boolean).join(' · ')}
-        </Text>
-        <Text style={[styles.cardTasks, off && styles.offSub]} numberOfLines={1}>{tasks}</Text>
+    <View style={styles.rowIndent}>
+      <View style={[styles.row, !first && styles.rule]}>
+        <Tap style={styles.rowText} onPress={() => router.push(`/alarm/${alarm.id}`)} accessibilityLabel={`${time} ${ap}, ${sub}`}>
+          <View style={styles.timeRow}>
+            <Text style={[styles.time, color]}>{time}</Text>
+            {!!ap && <Text style={[styles.ap, color]}>{ap}</Text>}
+          </View>
+          <Text style={styles.sub} numberOfLines={1}>{sub}</Text>
+        </Tap>
+        <WSwitch value={alarm.enabled} onValueChange={onToggle} accessibilityLabel={`${time} ${ap}, ${sub}`} />
       </View>
-      <PopSwitch value={alarm.enabled} onValueChange={onToggle} accessibilityLabel={alarm.label || time} />
-    </PopButton>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: Pop.paper },
+  screen: { flex: 1, backgroundColor: W.mist },
+  flex: { flex: 1 },
   center: { alignItems: 'center', justifyContent: 'center' },
-  content: { paddingHorizontal: 20, gap: 0 },
+  header: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 16, marginBottom: 8 },
+  round: { width: 44, height: 44, borderRadius: 999, backgroundColor: W.paper, alignItems: 'center', justifyContent: 'center' },
+  add: { backgroundColor: W.cta },
 
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  headerText: { gap: 2, flex: 1 },
-  date: { fontFamily: PopFont.semibold, fontSize: 13, color: Pop.sub },
-  greeting: { fontFamily: PopFont.heavy, fontSize: 30, letterSpacing: -0.9, color: Pop.ink },
-  round: { width: 44, height: 44, borderRadius: 999, alignItems: 'center', justifyContent: 'center' },
-  add: { width: 40, height: 40, backgroundColor: Pop.sun },
-
-  heroBox: { marginTop: 40 },
-  hero: { height: 236, borderRadius: 30, backgroundColor: Pop.blue, overflow: 'visible' },
-  heroText: { position: 'absolute', left: 20, top: 18, right: 150, gap: 6 },
-  heroLabel: { fontFamily: PopFont.bold, fontSize: 14, color: Pop.onBlue },
-  heroTimeRow: { flexDirection: 'row', alignItems: 'baseline', gap: 6 },
-  heroTime: { fontFamily: PopFont.heavy, fontSize: 76, lineHeight: 80, letterSpacing: -3.4, color: Pop.white, fontVariant: ['tabular-nums'] },
-  heroAp: { fontFamily: PopFont.heavy, fontSize: 18, color: Pop.white },
-  until: {
-    alignSelf: 'flex-start',
-    fontFamily: PopFont.heavy,
-    fontSize: 14,
-    color: Pop.ink,
-    backgroundColor: Pop.sun,
-    borderWidth: 2,
-    borderColor: Pop.ink,
-    borderRadius: 999,
-    overflow: 'hidden',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-  },
-  heroSub: { fontFamily: PopFont.semibold, fontSize: 14, color: Pop.onBlue },
-  heroEmpty: { fontFamily: PopFont.heavy, fontSize: 30, letterSpacing: -0.8, color: Pop.white, marginVertical: 8 },
-  heroAdd: { alignSelf: 'flex-start', backgroundColor: Pop.sun, borderRadius: 999, paddingHorizontal: 16, paddingVertical: 10 },
-  heroAddText: { fontFamily: PopFont.heavy, fontSize: 15, color: Pop.ink },
-  heroWakey: { position: 'absolute', right: -6, top: -30 },
-  bubble: {
-    position: 'absolute',
-    right: 14,
-    bottom: 14,
-    fontFamily: PopFont.heavy,
-    fontSize: 13,
-    color: Pop.ink,
-    backgroundColor: Pop.white,
-    borderWidth: 2,
-    borderColor: Pop.ink,
-    borderRadius: 14,
-    overflow: 'hidden',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-
-  streakBox: { marginTop: 20 },
-  sectionRow: { marginTop: 22, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  section: { fontFamily: PopFont.heavy, fontSize: 22, letterSpacing: -0.4, color: Pop.ink },
-  list: { marginTop: 10, gap: 12 },
-  card: { borderRadius: 22, paddingHorizontal: 16, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  card: { marginHorizontal: 20, backgroundColor: W.paper, borderRadius: 24, padding: 20, gap: 20 },
+  cardTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   cardText: { flex: 1, gap: 2 },
-  cardTimeRow: { flexDirection: 'row', alignItems: 'baseline', gap: 4 },
-  cardTime: { fontFamily: PopFont.heavy, fontSize: 30, letterSpacing: -0.9, color: Pop.ink, fontVariant: ['tabular-nums'] },
-  cardAp: { fontFamily: PopFont.heavy, fontSize: 13, color: Pop.ink },
-  cardSub: { fontFamily: PopFont.semibold, fontSize: 13, color: Pop.sub },
-  cardTasks: { fontFamily: PopFont.semibold, fontSize: 12, color: Pop.sub },
-  off: { color: Pop.faint },
-  offSub: { color: Pop.faint },
+  kicker: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  kickerText: { fontFamily: WFont.semibold, fontSize: 15, lineHeight: 20, color: W.graphite },
+  count: { fontFamily: WFont.bold, fontSize: 64, lineHeight: 72, letterSpacing: -2.56, color: W.ink, fontVariant: ['tabular-nums'] },
+  note: { fontFamily: WFont.medium, fontSize: 15, lineHeight: 20, color: W.graphite },
+
+  section: { marginTop: 28, paddingHorizontal: 20, gap: 12 },
+  h2: { paddingHorizontal: 4, fontFamily: WFont.bold, fontSize: 20, lineHeight: 25, letterSpacing: -0.2, color: W.ink },
+  group: { backgroundColor: W.paper, borderRadius: 24, overflow: 'hidden' },
+  rowIndent: { paddingLeft: 20 },
+  row: { minHeight: 76, flexDirection: 'row', alignItems: 'center', gap: 16, paddingVertical: 12, paddingRight: 20 },
+  rule: { borderTopWidth: StyleSheet.hairlineWidth * 2, borderTopColor: W.hair },
+  rowText: { flex: 1, gap: 2 },
+  timeRow: { flexDirection: 'row', alignItems: 'baseline', gap: 4 },
+  time: { fontFamily: WFont.semibold, fontSize: 40, lineHeight: 44, letterSpacing: -1.2, fontVariant: ['tabular-nums'] },
+  ap: { fontFamily: WFont.semibold, fontSize: 17, lineHeight: 22 },
+  sub: { fontFamily: WFont.medium, fontSize: 15, lineHeight: 20, color: W.graphite },
+  empty: { padding: 20, gap: 16, alignItems: 'center' },
+  emptyText: { fontFamily: WFont.semibold, fontSize: 17, color: W.graphite },
+  emptyButton: { alignSelf: 'stretch' },
 });

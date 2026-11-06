@@ -1,5 +1,4 @@
-import { GlassButton } from '@/components/Glass';
-import { BorderRadius, Colors, FontFamily, FontSize, Spacing } from '@/constants/theme';
+import { W, WFont } from '@/constants/white';
 import { useAlarms } from '@/contexts/AlarmContext';
 import { LanguagePref, useLocale } from '@/contexts/LocaleContext';
 import { armWakeCheck, scheduleAlarmNotification } from '@/utils/notifications';
@@ -15,7 +14,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Alert, AppState, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-const TERMS = 'https://app.notion.com/p/Terms-of-Service-3e187bf678be806496d7c7f1ef9d61b0';
+const TERMS = 'https://resonant-stock-52e.notion.site/Terms-of-Service-3e187bf678be806496d7c7f1ef9d61b0';
 const PRIVACY = 'https://resonant-stock-52e.notion.site/Privacy-Policy-EN-43a8162e83de4eb58b61ee67a8dddcd2';
 
 const PREFS: LanguagePref[] = ['system', 'en', 'es', 'sv', 'de'];
@@ -26,11 +25,11 @@ type IconName = keyof typeof Ionicons.glyphMap;
 function Row({ label, detail, icon, onPress, last }: { label: string; detail?: string; icon?: IconName; onPress: () => void; last?: boolean }) {
     return (
         <>
-            <Pressable style={styles.row} onPress={onPress} accessibilityRole="button">
+            <Pressable style={({ pressed }) => [styles.row, pressed && styles.pressed]} onPress={onPress} accessibilityRole="button">
                 <Text style={styles.rowLabel}>{label}</Text>
                 <View style={styles.rowRight}>
                     {detail ? <Text style={styles.rowDetail}>{detail}</Text> : null}
-                    {icon ? <Ionicons name={icon} size={20} color={icon === 'checkmark' ? Colors.accent : Colors.textMuted} /> : null}
+                    {icon ? <Ionicons name={icon} size={20} color={icon === 'checkmark' ? W.blue : W.chev} /> : null}
                 </View>
             </Pressable>
             {!last && <View style={styles.divider} />}
@@ -85,7 +84,9 @@ export default function SettingsScreen() {
     return (
         <SafeAreaView style={styles.container} edges={['top']}>
             <View style={styles.header}>
-                <GlassButton icon="chevron-back" color={Colors.text} onPress={() => router.back()} accessibilityLabel={t('common.back')} />
+                <Pressable style={({ pressed }) => [styles.round, pressed && styles.pressed]} onPress={() => router.back()} accessibilityRole="button" accessibilityLabel={t('common.back')} hitSlop={4}>
+                    <Ionicons name="chevron-back" size={22} color={W.ink} />
+                </Pressable>
                 <Text style={styles.headerTitle}>{t('settings.title')}</Text>
                 <View style={styles.headerSpacer} />
             </View>
@@ -151,76 +152,24 @@ export default function SettingsScreen() {
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: Colors.background,
-    },
-    header: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: Spacing.md,
-        paddingVertical: Spacing.sm,
-    },
+    container: { flex: 1, backgroundColor: W.mist },
+    header: { height: 56, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16 },
+    round: { width: 44, height: 44, borderRadius: 999, backgroundColor: W.paper, alignItems: 'center', justifyContent: 'center' },
     headerSpacer: { width: 44 },
-    headerTitle: {
-        fontSize: FontSize.lg,
-        fontFamily: FontFamily.semibold,
-        color: Colors.text,
-    },
-    section: {
-        marginTop: Spacing.lg,
-        paddingHorizontal: Spacing.lg,
-    },
-    sectionTitle: {
-        fontSize: FontSize.sm,
-        fontFamily: FontFamily.medium,
-        color: Colors.textSecondary,
-        marginBottom: Spacing.sm,
-        textTransform: 'uppercase',
-        letterSpacing: 0.5,
-    },
-    listContainer: {
-        backgroundColor: Colors.surface,
-        borderRadius: BorderRadius.md,
-        borderWidth: 1,
-        borderColor: Colors.border,
-    },
-    row: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: Spacing.md,
-        paddingVertical: Spacing.md,
-        minHeight: 52,
-    },
-    rowLabel: {
-        fontSize: FontSize.md,
-        fontFamily: FontFamily.regular,
-        color: Colors.text,
-        flex: 1,
-    },
-    rowRight: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: Spacing.xs,
-    },
-    rowDetail: {
-        fontSize: FontSize.md,
-        fontFamily: FontFamily.regular,
-        color: Colors.textSecondary,
-    },
-    divider: {
-        height: 1,
-        backgroundColor: Colors.border,
-        marginLeft: Spacing.md,
-    },
-    version: {
-        fontSize: FontSize.xs,
-        fontFamily: FontFamily.regular,
-        color: Colors.textMuted,
-        textAlign: 'center',
-        marginTop: Spacing.xl,
-        marginBottom: Spacing.xxl,
-    },
+    headerTitle: { fontFamily: WFont.semibold, fontSize: 17, lineHeight: 22, color: W.ink },
+    save: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 4 },
+    saveText: { fontFamily: WFont.bold, fontSize: 17, color: W.ink },
+    content: { flex: 1 },
+    section: { marginTop: 20, paddingHorizontal: 20 },
+    sectionTitle: { marginBottom: 8, paddingHorizontal: 20, fontFamily: WFont.semibold, fontSize: 13, lineHeight: 18, color: W.graphite },
+    listContainer: { backgroundColor: W.paper, borderRadius: 24, overflow: 'hidden' },
+    row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingHorizontal: 20, minHeight: 52, paddingVertical: 12 },
+    pressed: { backgroundColor: W.hair },
+    rowContent: { flexDirection: 'row', alignItems: 'center', gap: 12, flexShrink: 1 },
+    rowLabel: { flexShrink: 1, fontFamily: WFont.medium, fontSize: 17, lineHeight: 22, color: W.ink },
+    rowRight: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+    rowDetail: { fontFamily: WFont.regular, fontSize: 17, lineHeight: 22, color: W.graphite },
+    divider: { height: 1, backgroundColor: W.hair, marginLeft: 20 },
+    version: { marginTop: 32, marginBottom: 48, fontFamily: WFont.medium, fontSize: 13, color: W.dim, textAlign: 'center' },
+    bottomSpacer: { height: 48 },
 });

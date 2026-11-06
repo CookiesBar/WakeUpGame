@@ -1,39 +1,40 @@
-// Ring + wake-up game (v3 pop): walk N steps → solve math → you're up. No intro: the game
-// starts as soon as it rings. Wakey's eyes follow the game: wide while ringing, calmer with
-// every step, thinking during math, stars when you're up.
+// Ring + wake-up flow (v3 white): Ringing → Walk with Wakey → Help Wakey count, then back to Home, where +1 plays.
+// Each screen fades in on top (250 ms) and the one under it drops out once covered: no slides,
+// there is no going back. Haptics only on taps and on the step or answer that finishes a task.
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useKeepAwake } from 'expo-keep-awake';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Accelerometer, Pedometer } from 'expo-sensors';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { BackHandler, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { BackHandler, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import Animated, {
-    Easing,
-    FadeIn,
+    ReduceMotion,
+    useAnimatedProps,
     useAnimatedStyle,
     useReducedMotion,
     useSharedValue,
     withDelay,
     withSequence,
+    withSpring,
     withTiming,
 } from 'react-native-reanimated';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Svg, { Circle } from 'react-native-svg';
 
-import Pressable from '@/components/Pressable';
-import StreakCard from '@/components/StreakCard';
-import Wakey, { mixMoods, type Mood } from '@/components/Wakey';
-import { PopButton, PopView } from '@/components/pop';
-import { LINE, Pop, PopFont } from '@/constants/pop';
+import { markPlusOne } from '@/components/PlusOne';
+import Wakey, { type Mood } from '@/components/Wakey';
+import { CtaButton, Tap } from '@/components/white';
+import { ARRIVE, FADE_MS, W, WFont } from '@/constants/white';
 import { useAlarms } from '@/contexts/AlarmContext';
 import { useLocale } from '@/contexts/LocaleContext';
 import { posthog } from '@/utils/analytics';
-import { clockText } from '@/utils/clockFormat';
+import { preloadSfx, sfx } from '@/utils/sfx';
+import { formatClock } from '@/utils/clockFormat';
 import { makeProblem, type MathLevel } from '@/utils/math';
-import { armWakeCheck, cancelAlarmNotifications, rescheduleRepeatingAlarms } from '@/utils/notifications';
+import { armWakeCheck, cancelAlarmNotifications, cancelRingAgain, rescheduleRepeatingAlarms } from '@/utils/notifications';
 import { recordAlarmCompletion } from '@/utils/rating';
 import { setAlarmVolume, stopAlarmSound } from '@/utils/sounds';
-import { streakV2, type StreakInfo } from '@/utils/stats';
 import { createStepDetector } from '@/utils/stepDetector';
 import { getAlarms, logWake } from '@/utils/storage';
 import { DEFAULT_MATH_LEVEL, DEFAULT_STEPS } from '@/utils/wakeCheck';
@@ -44,92 +45,155 @@ const IDLE_MS = 15_000;
 const MIN_VOLUME = 0.3;
 /** Problems to solve in the math phase. */
 const MATH_PROBLEMS = 3;
-/** Walk first (out of bed), then math (wake the brain). */
-const PHASES = ['walk', 'math'] as const;
-const PHASE_ICON = { walk: 'footsteps', math: 'calculator' } as const;
-const EASE_OUT = Easing.bezier(0.23, 1, 0.32, 1);
+/** The last step or the right answer: Wakey is happy this long before the next screen. */
+const WALK_DONE_MS = 900;
+const RIGHT_MS = 800;
 
 const volumeFor = (progress: number) => 1 - (1 - MIN_VOLUME) * progress;
+const arrive = (ms: number) => ({ duration: ms, easing: ARRIVE });
 
-/** Calm entrance: 250 ms fade with an 8 px lift. Reanimated skips it under Reduce Motion. */
-export const rise = (delay = 0) => () => {
-    'worklet';
-    const timing = { duration: 250, easing: Easing.out(Easing.cubic) };
-    return {
-        initialValues: { opacity: 0, transform: [{ translateY: 8 }] },
-        animations: {
-            opacity: withDelay(delay, withTiming(1, timing)),
-            transform: [{ translateY: withDelay(delay, withTiming(0, timing)) }],
-        },
-    };
-};
+/** One screen of the flow. `fade`: it fades in on top (a fade is not motion, so it plays under Reduce Motion too). */
+function Layer({ fade, on, style, children }: { fade: boolean; on: boolean; style: StyleProp<ViewStyle>; children: ReactNode }) {
+    const o = useSharedValue(fade ? 0 : 1);
+    useEffect(() => {
+        if (fade) o.value = withTiming(1, { duration: FADE_MS, easing: ARRIVE, reduceMotion: ReduceMotion.Never });
+        // Only on mount: a layer fades in once.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+    const anim = useAnimatedStyle(() => ({ opacity: o.value }));
+    return (
+        <Animated.View pointerEvents={on ? 'auto' : 'none'} style={[style, { zIndex: on ? 2 : 1 }, anim]}>
+            {children}
+        </Animated.View>
+    );
+}
+
+/** How far our own count may run ahead of the OS pedometer before it has to confirm (shaking the phone in bed stops here). */
+const OWN_LEAD = 10;
 
 /**
- * Steps since mount. Uses the OS pedometer (CMPedometer / Android step counter)
- * when available and permitted, otherwise an accelerometer peak detector — the
- * alarm must always be dismissable, even with Motion permission denied.
+ * Steps since mount, from two sources at once:
+ * - an accelerometer peak detector: counts each step the moment it happens;
+ * - the OS pedometer (CMPedometer / Android step counter), when available and permitted: more accurate, but it
+ *   reports late and in batches, so on its own the number sat still while you walked.
+ * The higher one wins; with the pedometer on, the detector may lead it by OWN_LEAD steps at most.
+ * Without the pedometer (Motion permission denied) the detector alone counts: the alarm must always be dismissable.
  */
 function useSteps(): number {
-    const [steps, setSteps] = useState(0);
+    const [own, setOwn] = useState(0);
+    const [os, setOs] = useState<number | null>(null); // null: no pedometer
 
     useEffect(() => {
-        let sub: { remove(): void } | undefined;
+        let accel: { remove(): void } | undefined;
+        let pedometer: { remove(): void } | undefined;
         let cancelled = false;
 
+        const detect = createStepDetector();
+        try {
+            Accelerometer.setUpdateInterval(50);
+            accel = Accelerometer.addListener(({ x, y, z }) => {
+                if (detect(x, y, z, Date.now())) setOwn(s => s + 1);
+            });
+        } catch (err) {
+            console.error('No accelerometer:', err); // web / sensorless devices
+        }
+
         (async () => {
-            const pedometer =
+            const ok =
                 (await Pedometer.isAvailableAsync().catch(() => false)) &&
                 (await Pedometer.requestPermissionsAsync().catch(() => null))?.granted;
-            if (cancelled) return;
-
-            if (pedometer) {
-                sub = Pedometer.watchStepCount(r => setSteps(r.steps));
-                return;
-            }
-
-            const detect = createStepDetector();
-            try {
-                Accelerometer.setUpdateInterval(50);
-                sub = Accelerometer.addListener(({ x, y, z }) => {
-                    if (detect(x, y, z, Date.now())) setSteps(s => s + 1);
-                });
-            } catch (err) {
-                console.error('No step source available:', err); // web / sensorless devices
-            }
+            if (cancelled || !ok) return;
+            setOs(0);
+            pedometer = Pedometer.watchStepCount(r => setOs(r.steps));
         })();
 
         return () => {
             cancelled = true;
-            sub?.remove();
+            accel?.remove();
+            pedometer?.remove();
         };
     }, []);
 
-    return steps;
+    return os === null ? own : Math.max(os, Math.min(own, os + OWN_LEAD));
 }
+
+/**
+ * Is the phone moving like someone walking? Accelerometer magnitude vs 1 g, smoothed; stays true for a moment
+ * after the motion stops, so the stride between two readings doesn't count as standing still.
+ * Lets Wakey walk with you between the pedometer's reports (iOS batches them every 1-3 s).
+ */
+const MOVE_G = 0.06; // ponytail: tuned by reasoning, not on a phone; raise if Wakey walks while the phone sits on a table
+const MOVE_HOLD_MS = 1200;
+function useMoving(): boolean {
+    const [moving, setMoving] = useState(false);
+    useEffect(() => {
+        let level = 0;
+        let lastMove = 0;
+        let sub: { remove(): void } | undefined;
+        try {
+            Accelerometer.setUpdateInterval(50);
+            sub = Accelerometer.addListener(({ x, y, z }) => {
+                level += 0.25 * (Math.abs(Math.hypot(x, y, z) - 1) - level);
+                const now = Date.now();
+                if (level > MOVE_G) lastMove = now;
+                const on = now - lastMove < MOVE_HOLD_MS;
+                setMoving(m => (m === on ? m : on));
+            });
+        } catch {
+            // no sensor (web): Wakey walks on the step count alone
+        }
+        return () => sub?.remove();
+    }, []);
+    return moving;
+}
+
+/**
+ * The shown count climbs one step at a time toward the real one, never jumping 3 → 7: quick when it is far
+ * behind (a pedometer batch), at walking pace when close.
+ */
+function useCountUp(target: number): number {
+    const [shown, setShown] = useState(0);
+    useEffect(() => {
+        if (shown === target) return;
+        if (shown > target) return setShown(target);
+        const timer = setTimeout(() => setShown(s => s + 1), Math.max(80, Math.min(300, 1000 / (target - shown))));
+        return () => clearTimeout(timer);
+    }, [shown, target]);
+    return shown;
+}
+
+type Screen = 'ring' | 'walk' | 'math';
 
 export default function RingScreen() {
     // steps / math params: dev "Test game" overrides
-    const { alarmId, label, steps: stepsParam, math: mathParam } = useLocalSearchParams<{
+    const { alarmId, steps: stepsParam, math: mathParam } = useLocalSearchParams<{
         alarmId?: string;
         label?: string;
         steps?: string;
         math?: string;
     }>();
-    const { t } = useLocale();
-    const { alarms, updateAlarm } = useAlarms();
+    const { alarms, updateAlarm, refreshAlarms } = useAlarms();
+    // A No on "Still awake?" may have just made this alarm's game harder in storage: play that one.
+    useEffect(() => {
+        refreshAlarms();
+    }, [refreshAlarms]);
+    const insets = useSafeAreaInsets();
     useKeepAwake();
+    useEffect(preloadSfx, []);
     const [shownAt] = useState(() => new Date());
 
     const alarm = alarms.find(a => a.id === alarmId);
     const goal = Number(stepsParam) || alarm?.steps || DEFAULT_STEPS;
     const mathLevel = (mathParam ? Number(mathParam) : alarm?.mathLevel ?? DEFAULT_MATH_LEVEL) as MathLevel;
-    const title = alarm?.label || label || t('ring.defaultLabel');
 
-    const [phase, setPhase] = useState(0);
-    const next = useCallback(() => setPhase(p => p + 1), []);
-    const done = phase >= PHASES.length;
-    const [info, setInfo] = useState<StreakInfo | null>(null);
-    const [upAt, setUpAt] = useState<Date | null>(null);
+    // The screen on top, and the one it is covering while it fades in.
+    const [[screen, under], setScreens] = useState<[Screen, Screen | null]>(['ring', null]);
+    const go = useCallback((next: Screen) => setScreens(([cur]) => [next, cur]), []);
+    useEffect(() => {
+        if (!under) return;
+        const timer = setTimeout(() => setScreens(([cur]) => [cur, null]), FADE_MS);
+        return () => clearTimeout(timer);
+    }, [under]);
 
     // No escaping the game with the Android back button.
     useEffect(() => {
@@ -137,10 +201,12 @@ export default function RingScreen() {
         return () => sub.remove();
     }, []);
 
-    // First step = someone is up. The in-app alarm keeps ringing; stop the backup
+    // First step (or "Can't walk?") = someone is up. The in-app alarm keeps ringing; stop the backup
     // notifications piling up on top. (Not on mount: the screen can open while they sleep.)
     const engaged = useCallback(() => {
-        if (alarmId) cancelAlarmNotifications(alarmId).catch(() => undefined);
+        if (!alarmId) return;
+        cancelAlarmNotifications(alarmId).catch(() => undefined);
+        cancelRingAgain(alarmId); // when this game is the ring-again after an unanswered "Still awake?"
     }, [alarmId]);
 
     /** Re-arm the next occurrence, or switch a one-time alarm off. Returns the stored alarm. */
@@ -157,140 +223,160 @@ export default function RingScreen() {
         return stored;
     }, [alarmId, updateAlarm]);
 
-    // Emergency exit for people already awake: a 2 s hold, so it can't be hit half-asleep.
-    // No streak, no "Still awake?" check.
-    const exitEarly = async () => {
-        stopAlarmSound();
-        posthog.capture('alarm_exited_early', { phase: PHASES[phase] });
-        engaged();
-        await settleAlarm().catch(err => console.error('Early exit failed:', err));
+    // Last right answer: log the wake, then back to Home, where +1 plays. The rest finishes behind it.
+    const finish = useCallback(async () => {
+        stopAlarmSound(); // no haptic here: the right answer already played Success
+        const now = Date.now();
+        const log = await logWake(now).catch(err => console.error('Logging the wake failed:', err));
+        // +1 only for the day's first wake: the streak counts days, so a second game today (a No on
+        // "Still awake?", a second alarm) adds nothing and gets no celebration.
+        const today = new Date(now).toDateString();
+        if (log && log.filter(at => new Date(at).toDateString() === today).length === 1) markPlusOne();
         router.dismissTo('/');
-    };
-
-    useEffect(() => {
-        if (!done) return;
-        stopAlarmSound();
-        setUpAt(new Date());
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-        (async () => {
+        try {
             const stored = await settleAlarm();
             if (stored && stored.wakeCheck !== false) await armWakeCheck(stored);
             await recordAlarmCompletion();
-            const log = await logWake(Date.now());
-            setInfo(streakV2(log, new Date()));
-        })().catch(err => console.error('Finishing wake-up failed:', err));
-        // Run once when the game is finished.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [done]);
+        } catch (err) {
+            console.error('Finishing wake-up failed:', err);
+        }
+    }, [settleAlarm]);
 
-    const leave = () => router.dismissTo('/');
+    const toMath = useCallback(() => go('math'), [go]);
 
-    if (done) {
-        return (
-            <SafeAreaView style={[styles.container, styles.win]} edges={['top', 'bottom']}>
-                <Win info={info} upAt={upAt ?? shownAt} onLeave={leave} />
-            </SafeAreaView>
-        );
-    }
+    const render = (k: Screen): ReactNode => {
+        if (k === 'ring') {
+            return <Ringing at={shownAt} onWalk={() => go('walk')} />;
+        }
+        if (k === 'walk') {
+            const skip = () => {
+                posthog.capture('alarm_walk_skipped');
+                engaged();
+                toMath();
+            };
+            return <WalkMission goal={goal} onFirstStep={engaged} onDone={toMath} onSkip={skip} />;
+        }
+        return <MathMission level={mathLevel} onDone={finish} />;
+    };
 
     return (
-        <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-            <View style={styles.top}>
-                <View style={styles.topRow}>
-                    <Text style={styles.label} numberOfLines={1}>{title}</Text>
-                    <PhaseSteps phase={phase} />
-                </View>
-                <Text style={styles.clock}>{clockText(shownAt.getHours(), shownAt.getMinutes())}</Text>
-            </View>
-
-            {/* Keyed by phase: each phase rises in fresh, nothing slides across the screen. */}
-            <Animated.View key={phase} entering={rise()} style={styles.body}>
-                {PHASES[phase] === 'walk' ? (
-                    <WalkMission goal={goal} onFirstStep={engaged} onDone={next} />
-                ) : (
-                    <MathMission level={mathLevel} onDone={next} />
-                )}
-            </Animated.View>
-            <Pressable
-                style={styles.exit}
-                onLongPress={exitEarly}
-                delayLongPress={2000}
-                accessibilityRole="button"
-                accessibilityHint={t('ring.alreadyUp')}
-                hitSlop={8}
-            >
-                <Text style={styles.exitText}>{t('ring.alreadyUp')}</Text>
-            </Pressable>
-        </SafeAreaView>
+        <View style={styles.root}>
+            {[under, screen].map(k =>
+                k ? (
+                    // The first screen arrives with the stack's own fade; every later one fades in on top.
+                    <Layer key={k} fade={k !== 'ring'} on={k === screen} style={[styles.layer, k === 'ring' && styles.paper, { paddingTop: insets.top, paddingBottom: insets.bottom + 14 }]}>
+                        {render(k)}
+                    </Layer>
+                ) : null,
+            )}
+        </View>
     );
 }
 
-/** Walk → Math, so the whole game is visible up front (this replaced the intro screen). */
-function PhaseSteps({ phase }: { phase: number }) {
+/** It rings: the time, Wakey rattling and ringing his bells in bursts, one button. */
+function Ringing({ at, onWalk }: { at: Date; onWalk: () => void }) {
+    const { t } = useLocale();
+    const { time, ap } = formatClock(at.getHours(), at.getMinutes());
+    // Each rise of `ring` is one burst: a burst every 1.1 s.
+    const [ring, setRing] = useState(1);
+    useEffect(() => {
+        const timer = setInterval(() => setRing(r => (r ? 0 : 1)), 550);
+        return () => clearInterval(timer);
+    }, []);
+    return (
+        <View style={[styles.page, styles.ringPage]}>
+            <View style={styles.clockRow} accessible accessibilityLabel={`${time} ${ap}`}>
+                <Text style={styles.clock}>{time}</Text>
+                {!!ap && <Text style={styles.clockAp}>{ap}</Text>}
+            </View>
+            <View style={styles.center}>
+                <Wakey size={290} alarm mood="alarm" ring={ring} accessibilityLabel={t('ring.walkWithWakey')} />
+            </View>
+            <View style={styles.actions}>
+                <CtaButton
+                    label={t('ring.walkWithWakey')}
+                    icon={<Ionicons name="walk" size={20} color={W.paper} />}
+                    onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+                        onWalk();
+                    }}
+                />
+            </View>
+        </View>
+    );
+}
+
+/** Walk · Count: two segments, the current one filling. */
+function Segments({ walk, count, active }: { walk: number; count: number; active: 'walk' | 'count' }) {
     const { t } = useLocale();
     return (
-        <View style={styles.steps}>
-            {PHASES.map((p, i) => {
-                const isDone = i < phase;
-                const isNow = i === phase;
-                return (
-                    <View
-                        key={p}
-                        style={[styles.step, isNow && styles.stepNow, isDone && styles.stepDone]}
-                        accessible
-                        accessibilityLabel={t(`ring.${p}`)}
-                        accessibilityState={{ selected: isNow, checked: isDone }}
-                    >
-                        <Ionicons name={isDone ? 'checkmark' : PHASE_ICON[p]} size={14} color={isNow || isDone ? Pop.ink : Pop.onBlue} />
-                    </View>
-                );
-            })}
+        <View style={styles.segs} accessibilityRole="progressbar" accessibilityLabel={active === 'walk' ? t('ring.walk') : t('ring.count')}>
+            <Segment label={t('ring.walk')} value={walk} on={active === 'walk'} />
+            <Segment label={t('ring.count')} value={count} on={active === 'count'} />
         </View>
     );
 }
 
-function ProgressBar({ progress }: { progress: number }) {
-    const bar = useSharedValue(progress);
+function Segment({ label, value, on }: { label: string; value: number; on: boolean }) {
+    const v = useSharedValue(value);
     useEffect(() => {
-        bar.value = withTiming(progress, { duration: 320, easing: EASE_OUT });
-    }, [progress, bar]);
-    const fill = useAnimatedStyle(() => ({ width: `${bar.value * 100}%` }));
+        v.value = withTiming(value, arrive(240));
+    }, [value, v]);
+    const fill = useAnimatedStyle(() => ({ width: `${v.value * 100}%` }));
     return (
-        <View style={styles.track}>
-            <Animated.View style={[styles.fill, fill]} />
+        <View style={styles.seg}>
+            <View style={styles.segTrack}>
+                <Animated.View style={[styles.segFill, fill]} />
+            </View>
+            <Text style={[styles.segLabel, on && styles.segLabelOn]}>{label}</Text>
         </View>
     );
 }
 
-export function WalkMission({ goal, onFirstStep, onDone }: { goal: number; onFirstStep: () => void; onDone: () => void }) {
+const R = 133;
+const CIRC = 2 * Math.PI * R;
+const AnimatedCircle = Animated.createAnimatedComponent(Circle);
+
+/** Walk with Wakey: he walks while your steps count, the ring closes, the alarm gets quieter. */
+export function WalkMission({ goal, onFirstStep, onDone, onSkip }: { goal: number; onFirstStep: () => void; onDone: () => void; onSkip?: () => void }) {
     const { t } = useLocale();
     const steps = useSteps();
+    const moving = useMoving();
     const [devBonus, setDevBonus] = useState(0);
-    const walked = Math.min(steps + devBonus, goal);
+    const counted = Math.min(steps + devBonus, goal); // what the pedometer says
+    const walked = useCountUp(counted); // what the screen shows: one step at a time
     const progress = walked / goal;
+    const finished = walked >= goal;
 
     const [idle, setIdle] = useState(false);
     const lastStepAt = useRef(Date.now());
 
-    const finished = useRef(false);
+    // Last step: Success on the step itself, Wakey happy, the sum fades in 900 ms later.
+    const onDoneRef = useRef(onDone);
+    onDoneRef.current = onDone;
     useEffect(() => {
-        if (walked < goal || finished.current) return;
-        finished.current = true;
-        onDone();
-    }, [walked, goal, onDone]);
+        if (!finished) return;
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+        sfx('ting');
+        const timer = setTimeout(() => onDoneRef.current(), WALK_DONE_MS);
+        return () => clearTimeout(timer);
+    }, [finished]);
 
     const started = useRef(false);
     useEffect(() => {
-        if (walked === 0) return;
+        if (counted === 0) return;
         if (!started.current) {
-            started.current = true; // the pedometer can jump 0 → 3, so not `walked === 1`
+            started.current = true; // the pedometer can jump 0 → 3, so not `counted === 1`
             onFirstStep();
         }
         lastStepAt.current = Date.now();
         setIdle(false);
-        // A light tap every 5 steps: you feel the progress without looking.
-        if (walked % 5 === 0 && walked < goal) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    }, [walked, goal, onFirstStep]);
+    }, [counted, onFirstStep]);
+
+    // A light tap every 5 shown steps: you feel the progress without looking.
+    useEffect(() => {
+        if (walked > 0 && walked % 5 === 0 && walked < goal) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    }, [walked, goal]);
 
     useEffect(() => {
         const timer = setInterval(() => setIdle(Date.now() - lastStepAt.current > IDLE_MS), 1000);
@@ -306,277 +392,199 @@ export function WalkMission({ goal, onFirstStep, onDone }: { goal: number; onFir
         setAlarmVolume(idle ? 1 : volumeFor(progress));
     }, [idle, progress]);
 
-    const mode = walked === 0 ? 'start' : idle ? 'idle' : 'go';
-    // Wakey rings while you're still and calms down with every step.
-    const calm = mode === 'idle' ? 0 : progress;
-    const headline = mode === 'start' ? t('ring.walkTitle') : mode === 'idle' ? t('ring.keepMoving') : t('ring.keepWalking');
-    const status = mode === 'start' ? t('ring.walkGoal', { count: goal }) : mode === 'idle' ? t('ring.keepMoving') : t('ring.quieter');
+    const offset = useSharedValue(CIRC);
+    useEffect(() => {
+        offset.value = withTiming(CIRC * (1 - progress), arrive(240));
+    }, [progress, offset]);
+    const arc = useAnimatedProps(() => ({ strokeDashoffset: offset.value }));
+    const alert = idle && !finished;
 
     return (
-        <>
+        <View style={styles.page}>
+            <Segments walk={progress} count={0} active="walk" />
             <View style={styles.center}>
-                <Wakey size={250} arms="cheer" mood={mixMoods('ringing', 'awake', calm)} ring={1 - calm} steps={walked} accessibilityLabel={headline} />
-            </View>
-            <View style={styles.bottom}>
-                <View style={styles.countRow}>
-                    <Text style={styles.headline}>{headline}</Text>
-                    <Text style={styles.countText} accessibilityLabel={`${walked} ${t('ring.stepsOf', { count: goal })}`}>
-                        {walked} / {goal}
-                    </Text>
+                <View style={styles.ring}>
+                    <Svg width={300} height={300} viewBox="0 0 300 300" style={StyleSheet.absoluteFill}>
+                        <Circle cx={150} cy={150} r={R} fill="none" stroke={W.hair} strokeWidth={12} />
+                        <AnimatedCircle
+                            cx={150}
+                            cy={150}
+                            r={R}
+                            fill="none"
+                            stroke={W.blue}
+                            strokeWidth={12}
+                            strokeLinecap="round"
+                            strokeDasharray={CIRC}
+                            animatedProps={arc}
+                            transform="rotate(-90 150 150)"
+                        />
+                    </Svg>
+                    <View style={styles.walker}>
+                        <Wakey size={210} arms="down" steps={finished ? 0 : walked} walk={moving && !finished} mood={finished ? 'happy' : 'awake'} accessibilityLabel={t('ring.walkWithWakey')} />
+                    </View>
                 </View>
-                <ProgressBar progress={progress} />
-                <Animated.Text key={mode} entering={FadeIn.duration(200)} style={[styles.status, mode === 'idle' && styles.statusAlert]} accessibilityLiveRegion="polite">
-                    {status}
-                </Animated.Text>
+                <View style={styles.countRow} accessibilityRole="text" accessibilityLiveRegion="polite" accessibilityLabel={`${walked} ${t('ring.stepsOf', { count: goal })}`}>
+                    <Text style={styles.count}>{walked}</Text>
+                    <Text style={styles.countOf}>{t('ring.stepsOf', { count: goal })}</Text>
+                </View>
+                <Text style={[styles.line, alert && styles.lineAlert]}>{alert ? t('ring.keepMoving') : t('ring.softer')}</Text>
+                {/* The way out for anyone who can't walk (or a phone that can't count): only once no step has come for a while. */}
+                {alert && onSkip && (
+                    <Pressable style={styles.skip} onPress={onSkip} accessibilityRole="button" hitSlop={8}>
+                        <Text style={styles.skipText}>{t('ring.cantWalk')}</Text>
+                    </Pressable>
+                )}
                 {__DEV__ && (
-                    <Pressable style={styles.devButton} onPress={() => setDevBonus(b => b + 10)}>
+                    <Pressable style={styles.dev} onPress={() => setDevBonus(b => b + 10)}>
                         <Text style={styles.devText}>+10 steps (dev)</Text>
                     </Pressable>
                 )}
             </View>
-        </>
+        </View>
     );
 }
 
-const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'del', '0', 'ok'] as const;
+const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'del'] as const;
 
-/** count: problems to solve (the onboarding demo uses 1). */
+/** Help Wakey count: a sum, an answer box, a number pad, Check. count: problems to solve (the onboarding demo uses 1). */
 export function MathMission({ level, onDone, count = MATH_PROBLEMS }: { level: MathLevel; onDone: () => void; count?: number }) {
     const { t } = useLocale();
     const reduced = useReducedMotion();
     const [problem, setProblem] = useState(() => makeProblem(level));
     const [solved, setSolved] = useState(0);
     const [input, setInput] = useState('');
-    const [wrong, setWrong] = useState(false);
-    const [mood, setMood] = useState<Mood>('think');
+    const [right, setRight] = useState(false);
+    const [mood, setMood] = useState<Mood>('awake');
     const look = useSharedValue(0);
     const shake = useSharedValue(0);
-    const moodTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // Back to full volume after the walk, then fades per problem solved.
     useEffect(() => {
         setAlarmVolume(volumeFor(solved / count));
     }, [solved, count]);
     useEffect(() => () => {
-        if (moodTimer.current) clearTimeout(moodTimer.current);
+        if (timer.current) clearTimeout(timer.current);
     }, []);
-
-    const react = (next: Mood) => {
-        setMood(next);
-        if (moodTimer.current) clearTimeout(moodTimer.current);
-        moodTimer.current = setTimeout(() => setMood('think'), 900);
+    const later = (ms: number, fn: () => void) => {
+        if (timer.current) clearTimeout(timer.current);
+        timer.current = setTimeout(fn, ms);
     };
 
     const press = (key: (typeof KEYS)[number], col: number) => {
-        // Wakey glances at the key you hit.
-        look.value = withSequence(withTiming((col - 1) * 14, { duration: 120 }), withDelay(450, withTiming(0, { duration: 300 })));
-        setWrong(false);
-        if (key === 'del') return setInput(s => s.slice(0, -1));
-        if (key !== 'ok') return setInput(s => (s.length < 4 ? s + key : s));
-        if (!input) return;
-        setInput('');
-        if (Number(input) !== problem.answer) {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
-            setWrong(true);
-            react('snoozed');
-            if (!reduced) shake.value = withSequence(...[10, -8, 6, -4, 0].map(x => withTiming(x, { duration: 84 })));
-            return;
-        }
-        if (solved + 1 >= count) return onDone();
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-        react('happy');
-        setSolved(solved + 1);
-        setProblem(makeProblem(level));
+        if (right || !key) return;
+        Haptics.selectionAsync().catch(() => {});
+        // Wakey glances at the key you hit, then glides back.
+        look.value = withSequence(withSpring((col - 1) * 14, { duration: 250, dampingRatio: 1 }), withDelay(450, withTiming(0, { duration: 300 })));
+        if (key === 'del') setInput(s => s.slice(0, -1));
+        else setInput(s => (s.length < 4 ? s + key : s));
     };
 
-    const field = useAnimatedStyle(() => ({ transform: [{ translateX: shake.value }] }));
+    const check = () => {
+        if (!input || right) return;
+        if (Number(input) !== problem.answer) {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
+            setInput('');
+            setMood('snoozed');
+            later(900, () => setMood('awake'));
+            if (!reduced) shake.value = withSequence(...[10, -8, 6, -4, 0].map(x => withTiming(x, { duration: 72 })));
+            return;
+        }
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+        sfx('ting');
+        setRight(true);
+        setMood('happy');
+        later(RIGHT_MS, () => {
+            if (solved + 1 >= count) return onDone();
+            setSolved(solved + 1);
+            setProblem(makeProblem(level));
+            setInput('');
+            setRight(false);
+            setMood('awake');
+        });
+    };
+
+    const box = useAnimatedStyle(() => ({ transform: [{ translateX: shake.value }] }));
+    const done = solved + (right ? 1 : 0);
 
     return (
-        <>
-            <View style={styles.mathTop}>
-                <Wakey size={130} arms="down" mood={mood} lookX={look} accessibilityLabel={t('ring.mathAsk')} />
-                <PopView style={styles.bubble} containerStyle={styles.bubbleBox} depth={5}>
-                    <Text style={styles.ask}>{t('ring.mathOf', { n: solved + 1, count })}</Text>
-                    <Animated.Text key={solved} entering={rise()} style={styles.problem} numberOfLines={1} adjustsFontSizeToFit>
-                        {problem.text} =
-                    </Animated.Text>
-                </PopView>
-            </View>
-
-            <View style={styles.bottom}>
-                <Animated.View style={field}>
-                    <PopView style={[styles.answerBox, wrong && styles.answerWrong]} depth={4}>
-                        <Text style={[styles.answer, !input && styles.answerEmpty]}>{input || '?'}</Text>
-                    </PopView>
-                </Animated.View>
-                <Text style={[styles.status, wrong && styles.statusAlert]} accessibilityLiveRegion="polite">
-                    {wrong ? t('ring.mathWrong') : solved > 0 ? t('ring.right', { count: count - solved }) : t('ring.mathHint')}
-                </Text>
-                <View style={styles.keypad}>
-                    {KEYS.map((key, i) => (
-                        <PopButton
-                            key={key}
-                            containerStyle={styles.keySlot}
-                            style={[styles.key, key === 'ok' && styles.keyOk, key === 'del' && styles.keyDel]}
-                            onPress={() => press(key, i % 3)}
-                            accessibilityLabel={key === 'del' ? t('ring.mathDelete') : key === 'ok' ? t('ring.mathCheck') : key}
-                        >
-                            {key === 'del' ? (
-                                <Ionicons name="backspace-outline" size={26} color={Pop.ink} />
-                            ) : key === 'ok' ? (
-                                <Ionicons name="checkmark" size={30} color={Pop.white} />
-                            ) : (
-                                <Text style={styles.keyText}>{key}</Text>
-                            )}
-                        </PopButton>
-                    ))}
-                </View>
-            </View>
-        </>
-    );
-}
-
-/** You're up: stars in his eyes, the streak rolls over, today's dot fills in. */
-function Win({ info, upAt, onLeave }: { info: StreakInfo | null; upAt: Date; onLeave: () => void }) {
-    const { t } = useLocale();
-    const reduced = useReducedMotion();
-    const [mood, setMood] = useState<Mood>('awake');
-    const roll = useSharedValue(0);
-    useEffect(() => {
-        const timer = setTimeout(() => setMood('proud'), reduced ? 0 : 300);
-        return () => clearTimeout(timer);
-    }, [reduced]);
-    useEffect(() => {
-        if (!info) return;
-        roll.value = reduced ? 1 : withDelay(200, withTiming(1, { duration: 600, easing: EASE_OUT }));
-    }, [info, reduced, roll]);
-    const rolling = useAnimatedStyle(() => ({ transform: [{ translateY: -ROLL_H * roll.value }] }));
-    const count = info?.count ?? 0;
-
-    return (
-        <View style={styles.winBody}>
-            <Text style={styles.upAt}>{t('ring.upAt', { time: clockText(upAt.getHours(), upAt.getMinutes()) })}</Text>
-            <View style={styles.center}>
-                <Wakey size={230} arms="cheer" mood={mood} wave={1} accessibilityLabel={t('ring.win')} />
-            </View>
-            <View style={styles.winRow}>
-                <View style={styles.rollBox} accessible accessibilityLabel={`${count} ${t('ring.streak')}`}>
-                    <Animated.View style={rolling}>
-                        <Text style={styles.rollNum}>{Math.max(0, count - 1)}</Text>
-                        <Text style={styles.rollNum}>{count}</Text>
+        <View style={styles.page}>
+            <Segments walk={1} count={done / count} active="count" />
+            <View style={[styles.center, styles.mathCenter]}>
+                <Wakey head size={112} mood={mood} lookX={look} accessibilityLabel={t('ring.mathAsk')} />
+                <View style={styles.sumRow}>
+                    <Text style={styles.sum} numberOfLines={1} adjustsFontSizeToFit>{problem.text} =</Text>
+                    <Animated.View style={[styles.answer, right && styles.answerRight, box]} accessibilityRole="text" accessibilityLiveRegion="polite">
+                        <Text style={[styles.answerText, !input && styles.answerEmpty, right && styles.answerTextRight]}>{input || '?'}</Text>
                     </Animated.View>
                 </View>
-                <View style={styles.winText}>
-                    <Text style={styles.winLabel}>{t('ring.streak')}</Text>
-                    <Text style={styles.winSub}>{t('ring.streakSaved')}</Text>
-                </View>
             </View>
-            {info && <StreakCard info={info} showCount={false} containerStyle={styles.winCard} />}
-            <PopButton style={styles.leave} containerStyle={styles.leaveBox} depth={5} onPress={onLeave}>
-                <Text style={styles.leaveText}>{t('ring.imUp')}</Text>
-            </PopButton>
+            <View style={styles.keypad}>
+                {KEYS.map((key, i) => (
+                    <View key={i} style={styles.keySlot}>
+                        {!!key && (
+                            <Tap
+                                style={[styles.key, key === 'del' && styles.keyDel]}
+                                onPress={() => press(key, i % 3)}
+                                accessibilityLabel={key === 'del' ? t('ring.mathDelete') : key}
+                            >
+                                {key === 'del' ? <Ionicons name="backspace-outline" size={26} color={W.ink} /> : <Text style={styles.keyText}>{key}</Text>}
+                            </Tap>
+                        )}
+                    </View>
+                ))}
+            </View>
+            <CtaButton label={t('ring.check')} onPress={check} disabled={!input || right} style={styles.checkButton} />
         </View>
     );
 }
 
-const ROLL_H = 104;
-
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: Pop.blue, paddingTop: 12, paddingBottom: 20 },
-    win: { backgroundColor: Pop.sun },
-    top: { paddingHorizontal: 20, gap: 6 },
-    topRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
-    label: {
-        flexShrink: 1,
-        fontFamily: PopFont.heavy,
-        fontSize: 14,
-        color: Pop.ink,
-        backgroundColor: Pop.white,
-        borderWidth: LINE,
-        borderColor: Pop.ink,
-        borderRadius: 999,
-        overflow: 'hidden',
-        paddingHorizontal: 14,
-        paddingVertical: 6,
-    },
-    clock: {
-        textAlign: 'center',
-        fontFamily: PopFont.heavy,
-        fontSize: 92,
-        lineHeight: 96,
-        letterSpacing: -4.5,
-        color: Pop.white,
-        fontVariant: ['tabular-nums'],
-    },
-
-    steps: { flexDirection: 'row', gap: 6 },
-    step: {
-        width: 34,
-        height: 30,
-        borderRadius: 999,
-        borderWidth: 2,
-        borderColor: Pop.ink,
-        backgroundColor: Pop.blueDeep,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    stepNow: { backgroundColor: Pop.white },
-    stepDone: { backgroundColor: Pop.sun },
-
-    body: { flex: 1, justifyContent: 'space-between' },
+    root: { flex: 1, backgroundColor: W.mist },
+    layer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: W.mist },
+    paper: { backgroundColor: W.paper },
+    page: { flex: 1, paddingHorizontal: 20, paddingTop: 22 },
     center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-    bottom: { gap: 10, paddingHorizontal: 20 },
+    flex: { flex: 1 },
+    stretch: { alignSelf: 'stretch' },
 
-    countRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' },
-    headline: { fontFamily: PopFont.heavy, fontSize: 20, color: Pop.white },
-    countText: { fontFamily: PopFont.heavy, fontSize: 15, color: Pop.white, fontVariant: ['tabular-nums'] },
-    track: { height: 22, borderRadius: 999, borderWidth: LINE, borderColor: Pop.ink, backgroundColor: Pop.blueDeep, overflow: 'hidden' },
-    fill: { height: '100%', backgroundColor: Pop.sun },
-    status: { fontFamily: PopFont.semibold, fontSize: 15, color: Pop.onBlue, textAlign: 'center' },
-    statusAlert: { color: Pop.sun, fontFamily: PopFont.heavy },
-    devButton: { alignSelf: 'center', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.18)' },
-    devText: { fontFamily: PopFont.bold, fontSize: 14, color: Pop.white },
-    exit: { alignSelf: 'center', paddingVertical: 8, marginTop: 6 },
-    exitText: { fontFamily: PopFont.bold, fontSize: 14, color: Pop.onBlue },
+    ringPage: { paddingTop: 48, alignItems: 'center' },
+    clockRow: { flexDirection: 'row', alignItems: 'baseline', gap: 6 },
+    clock: { fontFamily: WFont.semibold, fontSize: 96, lineHeight: 100, letterSpacing: -4.3, color: W.ink, fontVariant: ['tabular-nums'] },
+    clockAp: { fontFamily: WFont.semibold, fontSize: 28, lineHeight: 34, color: W.graphite },
+    actions: { alignSelf: 'stretch', gap: 8 },
+    skip: { alignSelf: 'center', minHeight: 44, justifyContent: 'center', paddingHorizontal: 16 },
+    skipText: { fontFamily: WFont.semibold, fontSize: 15, color: W.graphite },
 
-    mathTop: { flex: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, gap: 4 },
-    bubbleBox: { flex: 1 },
-    bubble: { borderRadius: 26, paddingHorizontal: 14, paddingVertical: 16, alignItems: 'center', gap: 2 },
-    ask: { fontFamily: PopFont.bold, fontSize: 13, color: Pop.sub },
-    problem: { fontFamily: PopFont.heavy, fontSize: 40, letterSpacing: -1, color: Pop.ink, fontVariant: ['tabular-nums'] },
-    answerBox: { height: 76, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
-    answerWrong: { backgroundColor: Pop.dangerBg },
-    answer: { fontFamily: PopFont.heavy, fontSize: 46, letterSpacing: -1, color: Pop.ink, fontVariant: ['tabular-nums'] },
-    answerEmpty: { color: Pop.faint },
-    keypad: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 10 },
-    keySlot: { width: '31.5%' },
-    key: { height: 58, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
-    keyOk: { backgroundColor: Pop.ink },
-    keyDel: { backgroundColor: Pop.mist },
-    keyText: { fontFamily: PopFont.heavy, fontSize: 26, color: Pop.ink },
+    segs: { flexDirection: 'row', gap: 6 },
+    seg: { flex: 1, gap: 6 },
+    segTrack: { height: 4, borderRadius: 999, backgroundColor: W.hair, overflow: 'hidden' },
+    segFill: { height: '100%', backgroundColor: W.blue },
+    segLabel: { fontFamily: WFont.semibold, fontSize: 13, lineHeight: 18, color: W.graphite },
+    segLabelOn: { fontFamily: WFont.bold, color: W.ink },
 
-    winBody: { flex: 1, paddingHorizontal: 20 },
-    upAt: {
-        alignSelf: 'flex-start',
-        fontFamily: PopFont.heavy,
-        fontSize: 14,
-        color: Pop.ink,
-        backgroundColor: Pop.white,
-        borderWidth: LINE,
-        borderColor: Pop.ink,
-        borderRadius: 999,
-        overflow: 'hidden',
-        paddingHorizontal: 14,
-        paddingVertical: 6,
-    },
-    winRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 12 },
-    rollBox: { height: ROLL_H, overflow: 'hidden' },
-    rollNum: { height: ROLL_H, fontFamily: PopFont.heavy, fontSize: 100, lineHeight: ROLL_H, letterSpacing: -5, color: Pop.ink, fontVariant: ['tabular-nums'] },
-    winText: { paddingBottom: 14, gap: 2, flexShrink: 1 },
-    winLabel: { fontFamily: PopFont.heavy, fontSize: 22, letterSpacing: -0.4, color: Pop.ink },
-    winSub: { fontFamily: PopFont.bold, fontSize: 15, color: Pop.ink },
-    winCard: { marginTop: 14 },
-    leaveBox: { marginTop: 16 },
-    leave: { height: 64, borderRadius: 999, backgroundColor: Pop.ink, alignItems: 'center', justifyContent: 'center' },
-    leaveText: { fontFamily: PopFont.heavy, fontSize: 19, color: Pop.white },
+    ring: { width: 300, height: 300, alignItems: 'center', justifyContent: 'center' },
+    walker: { marginTop: 10 },
+    countRow: { flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 20 },
+    count: { fontFamily: WFont.bold, fontSize: 72, lineHeight: 76, letterSpacing: -2.9, color: W.ink, fontVariant: ['tabular-nums'] },
+    countOf: { fontFamily: WFont.semibold, fontSize: 20, lineHeight: 25, color: W.graphite },
+    line: { marginTop: 6, fontFamily: WFont.medium, fontSize: 17, lineHeight: 24, color: W.graphite, textAlign: 'center' },
+    lineAlert: { fontFamily: WFont.bold, color: W.sunText },
+    dev: { marginTop: 12, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 999, backgroundColor: W.hair },
+    devText: { fontFamily: WFont.bold, fontSize: 14, color: W.ink },
+
+    mathCenter: { gap: 20 },
+    sumRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+    sum: { flexShrink: 1, fontFamily: WFont.bold, fontSize: 44, lineHeight: 52, letterSpacing: -1.3, color: W.ink, fontVariant: ['tabular-nums'] },
+    answer: { minWidth: 104, height: 64, paddingHorizontal: 16, borderRadius: 16, backgroundColor: W.paper, alignItems: 'center', justifyContent: 'center' },
+    answerRight: { backgroundColor: W.blueSoft },
+    answerText: { fontFamily: WFont.bold, fontSize: 40, lineHeight: 48, letterSpacing: -1.2, color: W.ink, fontVariant: ['tabular-nums'] },
+    answerEmpty: { color: W.dim },
+    answerTextRight: { color: W.blueText },
+    keypad: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 8 },
+    keySlot: { width: '32%', height: 60 },
+    key: { height: 60, borderRadius: 16, backgroundColor: W.paper, alignItems: 'center', justifyContent: 'center' },
+    keyDel: { backgroundColor: 'transparent' },
+    keyText: { fontFamily: WFont.semibold, fontSize: 28, color: W.ink, fontVariant: ['tabular-nums'] },
+    checkButton: { marginTop: 16 },
 });
