@@ -57,6 +57,7 @@
       [
         "expo-notifications",
         {
+          "enableRemoteNotifications": true,
           "largeIcon": "./assets/images/notification-wakey.png",
           "sounds": [
             "./assets/sounds/fast_alarm.wav",
@@ -83,7 +84,8 @@
       ],
       "expo-font",
       "expo-status-bar",
-      "expo-web-browser"
+      "expo-web-browser",
+      "posthog-react-native/expo"
     ],
     "experiments": {
       "typedRoutes": true

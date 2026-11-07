@@ -28,24 +28,20 @@ import { CtaButton, Tap } from '@/components/white';
 import { ARRIVE, FADE_MS, W, WFont } from '@/constants/white';
 import { useAlarms } from '@/contexts/AlarmContext';
 import { useLocale } from '@/contexts/LocaleContext';
-import { posthog } from '@/utils/analytics';
 import { preloadSfx, sfx } from '@/utils/sfx';
 import { formatClock } from '@/utils/clockFormat';
 import { makeProblem, type MathLevel } from '@/utils/math';
 import { armWakeCheck, cancelAlarmNotifications, cancelRingAgain, rescheduleRepeatingAlarms } from '@/utils/notifications';
-import { recordAlarmCompletion } from '@/utils/rating';
 import { needsPaywall } from '@/utils/revenueCat';
 import { setAlarmVolume, stopAlarmSound } from '@/utils/sounds';
 import { createStepDetector } from '@/utils/stepDetector';
 import { getAlarms, logWake } from '@/utils/storage';
-import { DEFAULT_MATH_LEVEL, DEFAULT_STEPS } from '@/utils/wakeCheck';
+import { DEFAULT_MATH_LEVEL, DEFAULT_STEPS, MATH_PROBLEMS } from '@/utils/wakeCheck';
 
 /** No new step for this long → alarm back to full volume + "Keep moving!". */
 const IDLE_MS = 15_000;
 /** Volume just before the goal; the alarm fades from 1 toward this as the game progresses. */
 const MIN_VOLUME = 0.3;
-/** Problems to solve in the math phase. */
-const MATH_PROBLEMS = 3;
 /** The last step or the right answer: Wakey is happy this long before the next screen. */
 const WALK_DONE_MS = 900;
 const RIGHT_MS = 800;
@@ -242,7 +238,6 @@ export default function RingScreen() {
         try {
             const stored = await settleAlarm();
             if (stored && stored.wakeCheck !== false) await armWakeCheck(stored);
-            await recordAlarmCompletion();
         } catch (err) {
             console.error('Finishing wake-up failed:', err);
         }
@@ -252,7 +247,6 @@ export default function RingScreen() {
     const exitEarly = useCallback(async () => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
         stopAlarmSound();
-        posthog.capture('alarm_exited_early');
         engaged();
         router.dismissTo('/');
         if (!again) await settleAlarm().catch(() => undefined);
@@ -266,7 +260,6 @@ export default function RingScreen() {
         }
         if (k === 'walk') {
             const skip = () => {
-                posthog.capture('alarm_walk_skipped');
                 engaged();
                 toMath();
             };

@@ -1,246 +1,417 @@
-// First-launch flow: build the alarm → try the game → tune it → story → notifications →
-// personalizing. The hard paywall in _layout follows.
+// First launch (v3 white): the App Store header's ringing logo → one setting per step, each with its own moving
+// picture (time, repeat, walk, solve math, the Still awake? check, sound) → the Allow prompt (notifications +
+// AlarmKit). The alarm is saved for real; the hard paywall in _layout follows.
+// Motion (high-end, no bounce): steps share an X axis (enter 280 ms ease-out, leave 180 ms), titles rise 8 px with a
+// 40 ms stagger, presses dip to 0.97. Pictures live in OnboardingArt.
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useEffect, useState } from 'react';
-import { BackHandler, KeyboardAvoidingView, Platform, StyleSheet, Text, View } from 'react-native';
-import Animated, {
-    Easing,
-    FadeIn,
-    FadeOut,
-    useAnimatedStyle,
-    useSharedValue,
-    withRepeat,
-    withSequence,
-    withTiming,
-} from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
+import { StatusBar } from 'expo-status-bar';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { BackHandler, Pressable, StyleSheet, Text, useWindowDimensions, View, type StyleProp, type ViewStyle } from 'react-native';
+import { ScrollView } from 'react-native-gesture-handler';
+import Animated, { Easing, FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-import Mascot from '@/components/Mascot';
-
-import Pressable from '@/components/Pressable';
-import { BorderRadius, Colors, FontFamily, FontSize, Spacing } from '@/constants/wakeyTheme';
+import { BedLine, Repeat, Row, styles as editor } from '@/app/alarm/[id]';
+import { AllowDialog, CheckDemo, MATH_EXAMPLE, MathScene, Sky, SoundBars, SoundScene, Stage, WakeyLogo, WalkScene } from '@/components/OnboardingArt';
+import TimeWheel from '@/components/TimeWheel';
+import Wakey from '@/components/Wakey';
+import { CtaButton, rise, Tap, WSwitch } from '@/components/white';
+import { ARRIVE, W, WFont } from '@/constants/white';
 import { useLocale } from '@/contexts/LocaleContext';
-import PaywallGate from '@/components/PaywallGate';
 import { posthog } from '@/utils/analytics';
-import { needsPaywall, PAYWALL_POSITION_FLAG } from '@/utils/revenueCat';
-import { scheduleAlarmNotification } from '@/utils/notifications';
-import { DEFAULT_SOUND_ID } from '@/utils/sounds';
+import { clockText, uses24h } from '@/utils/clockFormat';
+import type { MathLevel } from '@/utils/math';
+import { requestNotificationPermissions, scheduleAlarmNotification } from '@/utils/notifications';
+import { bedtimes } from '@/utils/sleepCycle';
+import { BUNDLED_SOUNDS, DEFAULT_SOUND_ID, getSoundName, previewSound, stopAlarmSound } from '@/utils/sounds';
 import { type Alarm, generateId, saveAlarm } from '@/utils/storage';
-import { DEFAULT_MATH_LEVEL, DEFAULT_STEPS } from '@/utils/wakeCheck';
-import { ease } from './onboarding/kit';
-import { type Answers, type Draft, pageExit, STEPS, VIEWS } from './onboarding/steps';
+import { nextAlarmDate } from '@/utils/time';
+import { DEFAULT_MATH_LEVEL, DEFAULT_STEPS, MATH_LEVELS, MATH_PROBLEMS, STEP_OPTIONS } from '@/utils/wakeCheck';
 
+// Curves first: worklets capture what they reference when they are created.
+const LEAVE = Easing.bezier(0.55, 0, 1, 0.45);
+/** The next step comes in from the side we're heading to. */
+const pageIn = (dir: number) => () => {
+    'worklet';
+    return {
+        initialValues: { opacity: 0, transform: [{ translateX: 28 * dir }] },
+        animations: { opacity: withTiming(1, { duration: 280, easing: ARRIVE }), transform: [{ translateX: withTiming(0, { duration: 280, easing: ARRIVE }) }] },
+    };
+};
+/** The step we leave slides a little the other way as it fades. */
+const pageOut = (dir: number) => () => {
+    'worklet';
+    return {
+        initialValues: { opacity: 1, transform: [{ translateX: 0 }] },
+        animations: { opacity: withTiming(0, { duration: 180, easing: LEAVE }), transform: [{ translateX: withTiming(-20 * dir, { duration: 180, easing: LEAVE }) }] },
+    };
+};
+
+const STEPS = ['welcome', 'time', 'repeat', 'walk', 'math', 'check', 'sound', 'notify'] as const;
+/** Ring-burst spacing per bundled sound, so Wakey rings in time with the preview. */
+const TEMPO: Record<string, number> = { 'fast-alarm': 420, 'slow-alarm': 1000 };
+const PREVIEW_MS = 3000; // previewSound stops itself after 3 s
 const pad = (n: number) => String(n).padStart(2, '0');
+const select = () => Haptics.selectionAsync().catch(() => {});
 
 export default function Onboarding({ onComplete }: { onComplete: () => void }) {
     const { t } = useLocale();
-    // Visited step indexes; Back pops, Continue / Skip (game only) push.
-    const [history, setHistory] = useState([0]);
-    const index = history[history.length - 1];
+    const { width, height } = useWindowDimensions();
+    const stageH = Math.round(Math.min(250, Math.max(170, height * 0.28)));
+    const [index, setIndex] = useState(0);
+    const [dir, setDir] = useState(1);
     const id = STEPS[index];
 
-    const [answers, setAnswersState] = useState<Answers>({ goal: null, pains: [] });
-    const [draft, setDraft] = useState<Draft>(() => ({
-        hours: 7,
-        minutes: 0,
-        days: [false, true, true, true, true, true, false],
-        steps: DEFAULT_STEPS,
-        mathLevel: DEFAULT_MATH_LEVEL,
-        soundId: DEFAULT_SOUND_ID,
-        wakeCheck: true,
-        label: t('onboarding.defaultLabel'),
-    }));
+    const [mins, setMins] = useState(() => { const now = new Date(); return now.getHours() * 60 + now.getMinutes(); }); // starts at the time right now
+    const [days, setDays] = useState([false, true, true, true, true, true, false]);
+    const [steps, setSteps] = useState(DEFAULT_STEPS);
+    const [mathLevel, setMathLevel] = useState<MathLevel>(DEFAULT_MATH_LEVEL);
+    const [wakeCheck, setWakeCheck] = useState(true);
+    const [checkArmed, setCheckArmed] = useState(false); // the switch flips on by itself once its step is up
+    const [soundId, setSoundId] = useState(DEFAULT_SOUND_ID);
+    const [playing, setPlaying] = useState<string | null>(null);
+    const [woke, setWoke] = useState(false);
+    const [saving, setSaving] = useState(false);
+    const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+    const later = (key: string, ms: number, fn: () => void) => {
+        clearTimeout(timers.current[key]);
+        timers.current[key] = setTimeout(fn, ms);
+    };
 
-    const next = useCallback(() => setHistory(h => [...h, Math.min(h[h.length - 1] + 1, STEPS.length - 1)]), []);
-
-    // Paywall-position experiment: everyone leaving the game reads the flag (that's the
-    // exposure); the 'early' arm meets the paywall here instead of after onboarding.
-    const [paywall, setPaywall] = useState(false);
-    const advance = useCallback(async () => {
-        if (id === 'game' && posthog.getFeatureFlag(PAYWALL_POSITION_FLAG) === 'early' && (await needsPaywall())) {
-            setPaywall(true);
-            return;
-        }
-        next();
-    }, [id, next]);
-    const back = useCallback(() => setHistory(h => (h.length > 1 ? h.slice(0, -1) : h)), []);
-
+    // Direction first, then the step: the leaving page picks up the new direction before it unmounts.
+    const go = useCallback((d: 1 | -1) => {
+        setDir(d);
+        requestAnimationFrame(() => setIndex(i => Math.min(STEPS.length - 1, Math.max(0, i + d))));
+    }, []);
     useEffect(() => {
         const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-            if (history.length === 1) return false;
-            back();
+            if (index === 0) return false;
+            go(-1);
             return true;
         });
         return () => sub.remove();
-    }, [history.length, back]);
+    }, [index, go]);
 
     // One event per screen shown; the PostHog funnel over `step` shows where people drop off.
     useEffect(() => {
         posthog.capture('onboarding_step_viewed', { step: id, index });
     }, [id, index]);
+    useEffect(() => {
+        if (id === 'check') later('check', 700, () => setCheckArmed(true));
+        if (id !== 'sound') {
+            setPlaying(null);
+            void stopAlarmSound();
+        }
+    }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+    useEffect(() => {
+        const all = timers.current;
+        return () => {
+            Object.values(all).forEach(clearTimeout);
+            void stopAlarmSound();
+        };
+    }, []);
 
-    const [personalizing, setPersonalizing] = useState(false);
+    const play = (sound: string) => {
+        setSoundId(sound);
+        setPlaying(sound);
+        setWoke(true);
+        void previewSound(sound);
+        later('sound', PREVIEW_MS, () => setPlaying(null));
+    };
 
-    // The alarm built here is saved for real, so the user lands on a working alarm.
-    const finish = useCallback(async () => {
+    const finish = async (askFirst: boolean) => {
+        setSaving(true);
+        if (askFirst) await requestNotificationPermissions(); // notifications, then AlarmKit
         const alarm: Alarm = {
             id: generateId(),
-            time: `${pad(draft.hours)}:${pad(draft.minutes)}`,
-            label: draft.label.trim() || t('onboarding.defaultLabel'),
+            time: `${pad(Math.floor(mins / 60))}:${pad(mins % 60)}`,
+            label: t('onboarding.defaultLabel'),
             enabled: true,
-            days: draft.days,
-            soundUri: draft.soundId,
+            days,
+            soundUri: soundId,
             createdAt: Date.now(),
-            wakeCheck: draft.wakeCheck,
-            steps: draft.steps,
-            mathLevel: draft.mathLevel,
+            wakeCheck,
+            steps,
+            mathLevel,
         };
-        posthog.capture('onboarding_completed', {
-            goal: answers.goal,
-            pains: answers.pains,
-            steps: draft.steps,
-            math_level: draft.mathLevel,
-            wake_check: draft.wakeCheck,
-            screens_seen: history.length,
-        });
-        setPersonalizing(true);
-        // Hold the personalizing screen long enough for all three lines to land.
-        await Promise.all([
-            saveAlarm(alarm).then(() => scheduleAlarmNotification(alarm)),
-            new Promise(r => setTimeout(r, 3600)),
-        ]);
+        posthog.capture('onboarding_completed', { steps, math_level: mathLevel, wake_check: wakeCheck, notifications_asked: askFirst });
+        await saveAlarm(alarm).then(() => scheduleAlarmNotification(alarm));
         onComplete();
-    }, [draft, answers, history.length, onComplete, t]);
+    };
 
-    const progress = useSharedValue(0);
-    useEffect(() => {
-        progress.value = withTiming(index / (STEPS.length - 1), { duration: 500, easing: ease });
-    }, [index, progress]);
-    const barStyle = useAnimatedStyle(() => ({ width: `${progress.value * 100}%` }));
+    const hours = Math.floor(mins / 60);
+    const bed = bedtimes(nextAlarmDate(hours, mins % 60, days, new Date()), new Date()).find(b => !b.passed);
+    const handsAt = useMemo(() => new Date(2000, 0, 1, Math.floor(mins / 60), mins % 60), [mins]);
 
-    const Step = VIEWS[id];
-
-    if (personalizing) return <Personalizing />;
-    if (paywall) {
-        return (
-            <PaywallGate
-                onUnlocked={() => {
-                    setPaywall(false);
-                    next();
-                }}
-            />
-        );
+    let page: ReactNode;
+    switch (id) {
+        case 'welcome':
+            page = (
+                <View style={s.welcome}>
+                    <View style={s.logo}>
+                        <WakeyLogo width={Math.min(250, width - 150)} />
+                    </View>
+                    <Animated.Text entering={rise(520)} style={[s.title, s.light, s.centerText]} accessibilityRole="header">
+                        {t('onboarding.welcome.title')}
+                    </Animated.Text>
+                    <Animated.Text entering={rise(580)} style={[s.sub, s.lightSub, s.centerText]}>
+                        {t('onboarding.welcome.body')}
+                    </Animated.Text>
+                </View>
+            );
+            break;
+        case 'time':
+            page = (
+                <Page
+                    stage={
+                        <Stage height={stageH}>
+                            <View style={s.center}>
+                                <Wakey head size={Math.round(stageH * 0.7)} time={handsAt} mood={mins < 5 * 60 ? 'sleepy' : 'awake'} accessibilityLabel="Wakey" />
+                            </View>
+                        </Stage>
+                    }
+                    title={t('onboarding.time.title')}
+                >
+                    <TimeWheel minutes={mins} onChange={setMins} twelveHour={!uses24h()} accessibilityLabel={t('edit.wheelLabel')} ready />
+                    <BedLine text={bed ? t('edit.bedByLine', { time: clockText(bed.at.getHours(), bed.at.getMinutes()), h: bed.cycles * 1.5 }) : null} />
+                </Page>
+            );
+            break;
+        case 'repeat':
+            page = (
+                <Page
+                    stage={null}
+                    title={t('onboarding.repeat.title')}
+                >
+                    <Repeat days={days} onChange={setDays} />
+                </Page>
+            );
+            break;
+        case 'walk':
+            page = (
+                <Page stage={<Stage height={stageH}><WalkScene goal={steps} height={stageH} /></Stage>} title={t('onboarding.walk.title')} sub={t('onboarding.walk.sub')}>
+                    <View style={s.row3}>
+                        {STEP_OPTIONS.map(n => (
+                            <Option key={n} on={steps === n} onPress={() => setSteps(n)} style={s.optionThird} label={t('edit.stepsValue', { count: n })}>
+                                <Text style={[s.optNum, steps === n && s.optOnText]}>{n}</Text>
+                                <Text style={s.optCap}>{t('edit.steps')}</Text>
+                            </Option>
+                        ))}
+                    </View>
+                </Page>
+            );
+            break;
+        case 'math':
+            page = (
+                <Page stage={<Stage height={stageH}><MathScene level={mathLevel} height={stageH} /></Stage>} title={t('onboarding.math.title')} sub={t('onboarding.math.sub', { count: MATH_PROBLEMS })}>
+                    <View style={s.stack}>
+                        {MATH_LEVELS.map(l => (
+                            <Option key={l} on={mathLevel === l} onPress={() => setMathLevel(l)} style={s.optionRow} label={t(`edit.mathLevel_${l}`)}>
+                                <Radio on={mathLevel === l} />
+                                <View style={s.optText}>
+                                    <Text style={s.optTitle}>{t(`edit.mathLevel_${l}`)}</Text>
+                                    <Text style={s.optHint}>{t(l === 0 ? 'onboarding.math.easyHint' : 'onboarding.math.hardHint')}</Text>
+                                </View>
+                                <View style={[s.example, mathLevel === l && s.exampleOn]}>
+                                    <Text style={s.exampleText} numberOfLines={1}>{MATH_EXAMPLE[l]}</Text>
+                                </View>
+                            </Option>
+                        ))}
+                    </View>
+                </Page>
+            );
+            break;
+        case 'check':
+            page = (
+                <Page stage={<Stage height={stageH}><CheckDemo height={stageH} /></Stage>} title={t('wakeCheck.title')} sub={t('onboarding.check.sub')}>
+                    <View style={editor.group}>
+                        <Row first icon="eye-outline" label={t('edit.wakeCheck')}>
+                            <WSwitch
+                                value={wakeCheck && checkArmed}
+                                onValueChange={v => {
+                                    setCheckArmed(true);
+                                    setWakeCheck(v);
+                                }}
+                                accessibilityLabel={t('edit.wakeCheck')}
+                            />
+                        </Row>
+                    </View>
+                </Page>
+            );
+            break;
+        case 'sound':
+            page = (
+                <Page
+                    stage={<Stage height={stageH}><SoundScene playing={!!playing} period={TEMPO[playing ?? soundId] ?? 700} woke={woke} height={stageH} /></Stage>}
+                    title={t('onboarding.sound.title')}
+                    sub={t('onboarding.sound.sub')}
+                >
+                    <View style={s.stack}>
+                        {BUNDLED_SOUNDS.map(b => (
+                            <Option key={b.id} on={soundId === b.id} onPress={() => play(b.id)} style={s.optionRow} label={getSoundName(b.id)}>
+                                <Radio on={soundId === b.id} />
+                                <Text style={[s.optTitle, s.optText]}>{getSoundName(b.id)}</Text>
+                                <SoundBars playing={playing === b.id} period={TEMPO[b.id] ?? 700} color={soundId === b.id ? W.blue : W.chev} />
+                            </Option>
+                        ))}
+                    </View>
+                </Page>
+            );
+            break;
+        case 'notify':
+            page = <Page stage={<Stage height={stageH} tone="#DCE3EE"><AllowDialog height={stageH} /></Stage>} title={t('onboarding.notify.title')} sub={t('onboarding.notify.sub', { allow: t('onboarding.notify.allowBtn') })} />;
+            break;
     }
 
     return (
-        <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-            <View style={styles.header}>
-                <View style={styles.side}>
-                    {history.length > 1 && (
-                        <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(150)}>
-                            <Pressable onPress={back} style={styles.back} accessibilityRole="button" accessibilityLabel={t('common.back')} hitSlop={8}>
-                                <Ionicons name="chevron-back" size={22} color={Colors.ink900} />
+        <View style={s.root}>
+            <StatusBar style={id === 'welcome' ? 'light' : 'dark'} />
+            {id === 'welcome' && (
+                <Animated.View style={StyleSheet.absoluteFill} entering={FadeIn.duration(300)} exiting={FadeOut.duration(220)}>
+                    <Sky />
+                </Animated.View>
+            )}
+            <SafeAreaView style={s.safe} edges={['top', 'bottom']}>
+                <View style={s.header}>
+                    {index > 0 && (
+                        <Animated.View entering={FadeIn.duration(240)} exiting={FadeOut.duration(150)} style={s.headerRow}>
+                            <Pressable onPress={() => go(-1)} style={s.back} accessibilityRole="button" accessibilityLabel={t('common.back')} hitSlop={8}>
+                                <Ionicons name="chevron-back" size={24} color={W.ink} />
                             </Pressable>
+                            <View style={s.progress} accessible accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: STEPS.length - 1, now: index }}>
+                                {STEPS.slice(1).map((step, i) => (
+                                    <Segment key={step} on={index >= i + 1} />
+                                ))}
+                            </View>
+                            <View style={s.back} />
                         </Animated.View>
                     )}
                 </View>
-                <View style={styles.track}>
-                    <Animated.View style={[styles.fill, barStyle]} />
+
+                <View style={s.body}>
+                    <Animated.View key={id} entering={pageIn(dir)} exiting={pageOut(dir)} style={StyleSheet.absoluteFill}>
+                        {page}
+                    </Animated.View>
                 </View>
-                <View style={[styles.side, styles.right]}>
-                    {id === 'game' && (
-                        <Pressable onPress={advance} accessibilityRole="button" hitSlop={8}>
-                            <Text style={styles.skip}>{t('onboarding.skip')}</Text>
-                        </Pressable>
+
+                <View style={s.footer}>
+                    {id === 'welcome' ? (
+                        <Animated.View entering={rise(640)}>
+                            <Tap style={s.ctaLight} onPress={() => go(1)}>
+                                <Text style={s.ctaLightText}>{t('onboarding.welcome.cta')}</Text>
+                            </Tap>
+                        </Animated.View>
+                    ) : id === 'notify' ? (
+                        <>
+                            <CtaButton label={t('onboarding.notify.allow')} onPress={() => finish(true)} disabled={saving} />
+                            <Pressable onPress={() => finish(false)} disabled={saving} style={s.textButton} accessibilityRole="button" hitSlop={8}>
+                                <Text style={s.textButtonText}>{t('onboarding.notify.notNow')}</Text>
+                            </Pressable>
+                        </>
+                    ) : (
+                        <CtaButton label={t('onboarding.continue')} onPress={() => go(1)} />
                     )}
                 </View>
-            </View>
-
-            <View style={styles.body}>
-                <Animated.View key={`${index}-${history.length}`} exiting={pageExit} style={StyleSheet.absoluteFill}>
-                    <Step
-                        draft={draft}
-                        set={patch => setDraft(d => ({ ...d, ...patch }))}
-                        answers={answers}
-                        setAnswers={patch => setAnswersState(a => ({ ...a, ...patch }))}
-                        next={advance}
-                        finish={finish}
-                    />
-                </Animated.View>
-            </View>
-        </KeyboardAvoidingView>
+            </SafeAreaView>
+        </View>
     );
 }
 
-/** Closing beat: the mascot floats while the "personalizing" lines tick off one by one. */
-function Personalizing() {
-    const { t } = useLocale();
-    const [done, setDone] = useState(0);
-    const y = useSharedValue(0);
-    useEffect(() => {
-        y.value = withRepeat(
-            withSequence(
-                withTiming(-14, { duration: 1400, easing: Easing.inOut(Easing.sin) }),
-                withTiming(0, { duration: 1400, easing: Easing.inOut(Easing.sin) }),
-            ),
-            -1,
-        );
-        const timer = setInterval(() => setDone(d => Math.min(d + 1, 3)), 1000);
-        return () => clearInterval(timer);
-    }, [y]);
-    const float = useAnimatedStyle(() => ({ transform: [{ translateY: y.value }] }));
+/** A step's layout: its picture, the question, the control. Scrolls only when a small phone needs it. */
+function Page({ stage, title, sub, children }: { stage: ReactNode; title: string; sub?: string; children?: ReactNode }) {
     return (
-        <Animated.View entering={FadeIn.duration(250)} style={[styles.root, styles.personal]}>
-            <Animated.View style={float}>
-                <Mascot mood="happy" size={220} />
-            </Animated.View>
-            <Text style={styles.personalTitle}>{t('onboarding.review.personalTitle')}</Text>
-            {[1, 2, 3].map(n => (
-                <View key={n} style={[styles.personalRow, n > done + 1 && { opacity: 0.3 }]}>
-                    <Ionicons
-                        name={n <= done ? 'checkmark-circle' : 'ellipse-outline'}
-                        size={20}
-                        color={n <= done ? Colors.primary : Colors.ink400}
-                    />
-                    <Text style={styles.personalText}>{t(`onboarding.review.personal${n}`)}</Text>
-                </View>
-            ))}
-        </Animated.View>
+        <ScrollView contentContainerStyle={s.page} showsVerticalScrollIndicator={false} bounces={false}>
+            {stage}
+            <Animated.Text entering={rise(60)} style={[s.title, s.pageTitle]} accessibilityRole="header">{title}</Animated.Text>
+            {!!sub && <Animated.Text entering={rise(100)} style={s.sub}>{sub}</Animated.Text>}
+            {!!children && <Animated.View entering={rise(140)} style={s.control}>{children}</Animated.View>}
+        </ScrollView>
     );
 }
 
-const styles = StyleSheet.create({
-    root: { flex: 1, backgroundColor: Colors.paper },
-    header: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: Spacing.md,
-        paddingHorizontal: Spacing.lg,
-        paddingTop: Spacing.sm,
-        paddingBottom: Spacing.sm,
-    },
-    side: { width: 72, height: 40, justifyContent: 'center' },
-    right: { alignItems: 'flex-end' },
-    back: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        backgroundColor: Colors.white,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    track: { flex: 1, height: 6, borderRadius: BorderRadius.pill, backgroundColor: Colors.ink100, overflow: 'hidden' },
-    fill: { height: '100%', borderRadius: BorderRadius.pill, backgroundColor: Colors.primary },
-    skip: { fontFamily: FontFamily.bodyBold, fontSize: FontSize.md, color: Colors.ink500 },
+/** One progress segment: fills from the left as its step is reached. */
+function Segment({ on }: { on: boolean }) {
+    const p = useSharedValue(0);
+    useEffect(() => {
+        p.value = withTiming(on ? 1 : 0, { duration: 420, easing: ARRIVE });
+    }, [on, p]);
+    const fill = useAnimatedStyle(() => ({ transform: [{ scaleX: p.value }] }));
+    return (
+        <View style={s.seg}>
+            <Animated.View style={[s.segFill, fill]} />
+        </View>
+    );
+}
+
+/** A choice card: Paper, turning Wakey Blue (soft fill, blue edge) when picked. */
+function Option({ on, onPress, style, label, children }: { on: boolean; onPress: () => void; style?: StyleProp<ViewStyle>; label: string; children: ReactNode }) {
+    return (
+        <Tap
+            style={[s.option, on && s.optionOn, style]}
+            onPress={() => {
+                select();
+                onPress();
+            }}
+            accessibilityRole="radio"
+            accessibilityLabel={label}
+            accessibilityState={{ selected: on }}
+        >
+            {children}
+        </Tap>
+    );
+}
+
+function Radio({ on }: { on: boolean }) {
+    return <View style={[s.radio, on && s.radioOn]}>{on && <View style={s.radioDot} />}</View>;
+}
+
+const s = StyleSheet.create({
+    root: { flex: 1, backgroundColor: W.mist },
+    safe: { flex: 1 },
+    header: { height: 52, justifyContent: 'center' },
+    headerRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8 },
+    back: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+    progress: { flex: 1, flexDirection: 'row', gap: 4, paddingHorizontal: 8 },
+    seg: { flex: 1, height: 4, borderRadius: 2, backgroundColor: W.hair, overflow: 'hidden' },
+    segFill: { ...StyleSheet.absoluteFill, backgroundColor: W.blue, transformOrigin: 'left' },
     body: { flex: 1 },
-    personal: { alignItems: 'center', justifyContent: 'center', gap: Spacing.md, paddingHorizontal: Spacing.xl },
-    personalTitle: {
-        fontFamily: FontFamily.displayBold,
-        fontSize: FontSize.h2,
-        color: Colors.ink900,
-        textAlign: 'center',
-        marginTop: Spacing.xl,
-        marginBottom: Spacing.md,
-    },
-    personalRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, alignSelf: 'stretch', paddingHorizontal: Spacing.xl },
-    personalText: { fontFamily: FontFamily.bodyBold, fontSize: FontSize.md, color: Colors.ink700 },
+    page: { flexGrow: 1, paddingHorizontal: 20, paddingTop: 4, paddingBottom: 16 },
+    center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+    centerText: { textAlign: 'center' },
+
+    welcome: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28, gap: 14 },
+    logo: { marginBottom: 28 },
+    light: { color: W.paper },
+    lightSub: { color: 'rgba(255,255,255,0.88)' },
+
+    title: { fontFamily: WFont.bold, fontSize: 28, lineHeight: 34, letterSpacing: -0.6, color: W.ink },
+    pageTitle: { marginTop: 22 },
+    sub: { marginTop: 6, fontFamily: WFont.regular, fontSize: 17, lineHeight: 24, color: W.graphite },
+    control: { marginTop: 18 },
+
+    row3: { flexDirection: 'row', gap: 10 },
+    stack: { gap: 10 },
+    option: { backgroundColor: W.paper, borderRadius: 20, borderWidth: 1.5, borderColor: W.hair },
+    optionOn: { backgroundColor: W.blueSoft, borderColor: W.blue },
+    optionThird: { flex: 1, alignItems: 'center', paddingVertical: 14 },
+    optionRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, minHeight: 64, paddingVertical: 12 },
+    optNum: { fontFamily: WFont.heavy, fontSize: 26, lineHeight: 32, letterSpacing: -0.5, color: W.ink, fontVariant: ['tabular-nums'] },
+    optOnText: { color: W.blueText },
+    optCap: { fontFamily: WFont.medium, fontSize: 13, lineHeight: 18, color: W.graphite },
+    optText: { flex: 1 },
+    optTitle: { fontFamily: WFont.bold, fontSize: 17, lineHeight: 22, color: W.ink },
+    optHint: { fontFamily: WFont.medium, fontSize: 13, lineHeight: 18, color: W.graphite },
+    example: { borderRadius: 10, backgroundColor: W.mist, paddingHorizontal: 10, paddingVertical: 6, maxWidth: 140 },
+    exampleOn: { backgroundColor: W.paper },
+    exampleText: { fontFamily: WFont.bold, fontSize: 14, color: W.ink, fontVariant: ['tabular-nums'] },
+    radio: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: W.chev, alignItems: 'center', justifyContent: 'center' },
+    radioOn: { borderColor: W.blue },
+    radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: W.blue },
+
+    footer: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 12, gap: 4 },
+    ctaLight: { height: 56, borderRadius: 999, backgroundColor: W.paper, alignItems: 'center', justifyContent: 'center' },
+    ctaLightText: { fontFamily: WFont.bold, fontSize: 17, color: W.cta },
+    textButton: { alignSelf: 'center', minHeight: 44, justifyContent: 'center', paddingHorizontal: 12 },
+    textButtonText: { fontFamily: WFont.semibold, fontSize: 17, color: W.graphite },
 });

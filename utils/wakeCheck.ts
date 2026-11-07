@@ -10,6 +10,8 @@ export const STEP_OPTIONS = [20, 50, 100] as const;
 export const DEFAULT_STEPS = 50;
 export const MATH_LEVELS: MathLevel[] = [0, 2];
 export const DEFAULT_MATH_LEVEL: MathLevel = 0;
+/** Problems to solve in the math phase. */
+export const MATH_PROBLEMS = 3;
 
 export interface Difficulty {
     steps?: number;

@@ -4,6 +4,7 @@ import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import { strings, t } from '../i18n';
 import { alarmKit } from '../modules/wakey-alarm';
+import { posthog } from './analytics';
 import { alarmKitId } from './alarmKitId';
 import { BUNDLED_SOUNDS, DEFAULT_SOUND_ID } from './sounds';
 import { Alarm, getAlarms, getRingAgain, getWakeChecks, saveAlarm, saveRingAgain, saveWakeChecks } from './storage';
@@ -150,6 +151,8 @@ export const requestNotificationPermissions = async (): Promise<boolean> => {
             return false;
         }
 
+        // PostHog Workflows push: the plugin registers the token on later launches; this covers the first grant.
+        if (Platform.OS === 'ios' && !IN_EXPO_GO) Notifications.getDevicePushTokenAsync().then(tk => posthog.registerPushNotificationToken(tk.data)).catch(() => {});
         // Notifications stay on even with AlarmKit: they're how a tap opens the wake-up game.
         await alarmKit?.requestAuthorization().catch(error => console.error('AlarmKit authorization failed:', error));
         return true;

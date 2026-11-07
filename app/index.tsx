@@ -15,7 +15,6 @@ import { useAlarms } from '@/contexts/AlarmContext';
 import { useLocale } from '@/contexts/LocaleContext';
 import { strings } from '@/i18n';
 import { formatClock, repeatText } from '@/utils/clockFormat';
-import { checkAndShowRating } from '@/utils/rating';
 import { streakV2, type StreakInfo } from '@/utils/stats';
 import { getWakeLog, type Alarm } from '@/utils/storage';
 
@@ -30,7 +29,6 @@ export default function HomeScreen() {
   useFocusEffect(
     useCallback(() => {
       const celebrate = takePlusOne();
-      if (!celebrate) checkAndShowRating(); // after +1 instead, so the review prompt never covers it
       getWakeLog().then(log => {
         const fresh = streakV2(log, new Date());
         setInfo(fresh);
@@ -84,10 +82,7 @@ export default function HomeScreen() {
       {plusOne && (
         <PlusOne
           info={plusOne}
-          onClose={() => {
-            setPlusOne(null);
-            checkAndShowRating();
-          }}
+          onClose={() => setPlusOne(null)}
         />
       )}
     </View>

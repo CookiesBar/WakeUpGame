@@ -1,4 +1,5 @@
 import WheelPicker from '@/components/WheelPicker';
+import { PRIVACY_URL, TERMS_URL } from '@/constants/legal';
 import { W, WFont } from '@/constants/white';
 import { useAlarms } from '@/contexts/AlarmContext';
 import { LanguagePref, useLocale } from '@/contexts/LocaleContext';
@@ -6,6 +7,7 @@ import { LANGUAGE_NAMES, SUPPORTED_LOCALES } from '@/i18n';
 import { armWakeCheck, scheduleAlarmNotification } from '@/utils/notifications';
 import { manageSubscription } from '@/utils/revenueCat';
 import { getAlarms, saveAlarm } from '@/utils/storage';
+import { LAST_MAJOR_KEY, RATED_AT_KEY } from '@/utils/updateFlow';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
@@ -13,11 +15,9 @@ import * as Notifications from 'expo-notifications';
 import { router } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import React, { useEffect, useRef, useState } from 'react';
-import { Alert, AppState, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, AppState, DevSettings, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-const TERMS = 'https://resonant-stock-52e.notion.site/Terms-of-Service-3e187bf678be806496d7c7f1ef9d61b0';
-const PRIVACY = 'https://resonant-stock-52e.notion.site/Privacy-Policy-EN-43a8162e83de4eb58b61ee67a8dddcd2';
 
 const PREFS: LanguagePref[] = ['system', ...SUPPORTED_LOCALES];
 const WHEEL_ROW = 40;
@@ -44,6 +44,9 @@ const resetOnboarding = () =>
         { text: 'Cancel', style: 'cancel' },
         { text: 'Reset', style: 'destructive', onPress: () => AsyncStorage.removeItem('hasSeenOnboarding') },
     ]);
+
+// Forget What's New + rating, then reload: the real launch trigger runs again (after the dev paywall).
+const replayWhatsNew = () => AsyncStorage.multiRemove([LAST_MAJOR_KEY, RATED_AT_KEY]).then(() => DevSettings.reload());
 
 export default function SettingsScreen() {
     const { pref, setPref, locale, t } = useLocale();
@@ -121,8 +124,8 @@ export default function SettingsScreen() {
                 <View style={styles.section}>
                     <Text style={styles.sectionTitle}>{t('settings.legal')}</Text>
                     <View style={styles.listContainer}>
-                        <Row label={t('legal.terms')} icon="open-outline" onPress={() => open(TERMS)} />
-                        <Row label={t('legal.privacy')} icon="open-outline" onPress={() => open(PRIVACY)} last={Platform.OS !== 'ios'} />
+                        <Row label={t('legal.terms')} icon="open-outline" onPress={() => open(TERMS_URL)} />
+                        <Row label={t('legal.privacy')} icon="open-outline" onPress={() => open(PRIVACY_URL)} last={Platform.OS !== 'ios'} />
                         {/* RevenueCat is iOS-only here; opens Apple's native manage-subscriptions sheet */}
                         {Platform.OS === 'ios' && (
                             <Row label={t('settings.subscription')} icon="open-outline" onPress={manageSubscription} last />
@@ -144,6 +147,7 @@ export default function SettingsScreen() {
                         <View style={styles.section}>
                             <Text style={styles.sectionTitle}>Developer</Text>
                             <View style={styles.listContainer}>
+                                <Row label="Show What's New" icon="sparkles-outline" onPress={replayWhatsNew} />
                                 <Row label="Reset onboarding" icon="refresh" onPress={resetOnboarding} last />
                             </View>
                         </View>

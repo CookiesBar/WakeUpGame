@@ -6,6 +6,7 @@ import {
   PlusJakartaSans_800ExtraBold,
 } from '@expo-google-fonts/plus-jakarta-sans';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
 import { useFonts } from 'expo-font';
 import * as Notifications from 'expo-notifications';
 import { router, Stack, usePathname } from 'expo-router';
@@ -15,11 +16,11 @@ import { useEffect, useRef, useState } from 'react';
 import { AppState, StyleSheet, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 import Onboarding from '@/components/Onboarding';
 import PaywallGate from '@/components/PaywallGate';
-import { Colors as WakeyColors } from '@/constants/wakeyTheme';
+import WhatsNew from '@/components/WhatsNew';
+import { W } from '@/constants/white';
 import { AlarmProvider } from '@/contexts/AlarmContext';
 import { LocaleProvider } from '@/contexts/LocaleContext';
 import {
@@ -34,6 +35,7 @@ import {
   WAKE_YES,
 } from '@/utils/notifications';
 import { needsPaywall } from '@/utils/revenueCat';
+import { LAST_MAJOR_KEY, major, RATED_AT_KEY, reviewDue, whatsNewDue } from '@/utils/updateFlow';
 import { initializeAudio, playAlarmSound } from '@/utils/sounds';
 
 export {
@@ -45,6 +47,7 @@ export const unstable_settings = {
 };
 
 const ONBOARDING_COMPLETE_KEY = 'hasSeenOnboarding';
+const APP_VERSION = Constants.expoConfig?.version;
 
 // Prevent splash screen from auto-hiding
 SplashScreen.preventAutoHideAsync();
@@ -92,6 +95,7 @@ export default function RootLayout() {
   const pendingRing = useRef<RingData | null>(null);
 
   const [locked, setLocked] = useState(false);
+  const [update, setUpdate] = useState<{ askReview: boolean } | null>(null);
 
   // Handle alarm notification with deduplication
   const handleAlarmNotificationSafe = (notification: Notifications.Notification) => {
@@ -179,6 +183,11 @@ export default function RootLayout() {
       checkOnboarding().then(async (isComplete) => {
         // Decide before the splash hides, so home never flashes before the paywall.
         if (isComplete) setLocked(await needsPaywall().catch(() => false));
+        // Updated from an older major: What's New once the app is unlocked (after the paywall, if any).
+        if (isComplete) {
+          const stored = await AsyncStorage.multiGet([LAST_MAJOR_KEY, RATED_AT_KEY]).catch(() => null);
+          if (stored && whatsNewDue(true, stored[0][1], APP_VERSION)) setUpdate({ askReview: reviewDue(stored[1][1], Date.now()) });
+        }
         SplashScreen.hideAsync();
         initializeAudio();
       });
@@ -266,11 +275,11 @@ export default function RootLayout() {
   const handleOnboardingComplete = async () => {
     try {
       // The onboarding already saved and scheduled the user's first alarm.
-      await AsyncStorage.setItem(ONBOARDING_COMPLETE_KEY, 'true');
+      await AsyncStorage.multiSet([[ONBOARDING_COMPLETE_KEY, 'true'], [LAST_MAJOR_KEY, String(major(APP_VERSION))]]); // fresh installs skip What's New
     } catch (error) {
       console.error('Error saving onboarding status:', error);
     }
-    // Personalizing → paywall: lock first so home never shows in between.
+    // Onboarding → paywall: lock first so home never shows in between.
     setLocked(await needsPaywall().catch(() => false));
     setShowOnboarding(false);
     setIsOnboardingComplete(true);
@@ -286,9 +295,10 @@ export default function RootLayout() {
       <LocaleProvider>
         <GestureHandlerRootView style={styles.container}>
           <StatusBar style="dark" />
-          <SafeAreaView style={styles.onboardingContainer}>
+          {/* Onboarding handles its own safe area: the welcome sky runs under the status bar. */}
+          <View style={styles.onboardingContainer}>
             <Onboarding onComplete={handleOnboardingComplete} />
-          </SafeAreaView>
+          </View>
         </GestureHandlerRootView>
       </LocaleProvider>
     );
@@ -330,6 +340,7 @@ export default function RootLayout() {
             />
           </Stack>
           {locked && <PaywallOverlay onUnlocked={() => setLocked(false)} />}
+          {!locked && update && <WhatsNewOverlay askReview={update.askReview} onDone={() => setUpdate(null)} />}
         </AlarmProvider>
       </GestureHandlerRootView>
     </LocaleProvider>
@@ -347,12 +358,26 @@ function PaywallOverlay({ onUnlocked }: { onUnlocked: () => void }) {
   );
 }
 
+// Never on the ring screen either; shown = stored, so it comes once per major.
+function WhatsNewOverlay({ askReview, onDone }: { askReview: boolean; onDone: () => void }) {
+  const ringing = usePathname() === '/ring';
+  useEffect(() => {
+    if (!ringing) AsyncStorage.setItem(LAST_MAJOR_KEY, String(major(APP_VERSION))).catch(() => {});
+  }, [ringing]);
+  if (ringing) return null;
+  return (
+    <View style={StyleSheet.absoluteFill}>
+      <WhatsNew askReview={askReview} onDone={onDone} />
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
   onboardingContainer: {
     flex: 1,
-    backgroundColor: WakeyColors.paper,
+    backgroundColor: W.mist,
   },
 });

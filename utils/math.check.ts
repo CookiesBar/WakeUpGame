@@ -8,7 +8,10 @@ const h = 1e-4;
 
 function solve(text: string): number {
   let m: RegExpMatchArray | null;
-  if ((m = text.match(/^(\d+) \+ (\d+)$/))) return +m[1] + +m[2];
+  if ((m = text.match(/^(\d+) ([+−×÷]) (\d+)$/))) {
+    const [a, b] = [+m[1], +m[3]];
+    return m[2] === '+' ? a + b : m[2] === '−' ? a - b : m[2] === '×' ? a * b : a / b;
+  }
   if ((m = text.match(/^f = (\d+)x² \+ (\d+)x, f′\((\d+)\)$/))) {
     const f = (x: number) => +m![1] * x * x + +m![2] * x;
     return (f(+m[3] + h) - f(+m[3] - h)) / (2 * h);
@@ -35,6 +38,7 @@ function solve(text: string): number {
 }
 
 const kinds = new Set<string>();
+const easy = new Set<string>();
 for (const level of [0, 2] as const) {
   for (let i = 0; i < 5000; i++) {
     const p = makeProblem(level);
@@ -43,8 +47,10 @@ for (const level of [0, 2] as const) {
     assert.ok(Math.abs(solve(p.text) - p.answer) < 1e-3, `correct: ${p.text} = ${p.answer}, got ${solve(p.text)}`);
     assert.ok(p.text.length <= 26, `short enough for one line: ${p.text}`);
     if (level === 2) kinds.add(p.text[0]);
+    else easy.add(p.text.split(' ')[1]);
   }
 }
 assert.strictEqual(kinds.size, 5, 'every hard kind shows up');
+assert.deepStrictEqual([...easy].sort(), ['+', '×', '÷', '−'].sort(), 'easy uses all four basics');
 assert.strictEqual(makeProblem(0, () => 0).text, '10 + 10');
 console.log('math ok');

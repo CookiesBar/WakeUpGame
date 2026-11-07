@@ -120,7 +120,6 @@ export default function AlarmEditScreen() {
     const bedLine = bed ? t('edit.bedByLine', { time: clockText(bed.at.getHours(), bed.at.getMinutes()), h: bed.cycles * 1.5 }) : null;
     const cycleSteps = () => setSteps(STEP_OPTIONS[(STEP_OPTIONS.indexOf(steps as (typeof STEP_OPTIONS)[number]) + 1) % STEP_OPTIONS.length]);
     const cycleMath = () => setMathLevel(MATH_LEVELS[(MATH_LEVELS.indexOf(mathLevel) + 1) % MATH_LEVELS.length]);
-    const { letter, short } = strings().days; // Sunday first, like `days`
 
     return (
         <View style={[styles.screen, { paddingTop: insets.top }]}>
@@ -140,29 +139,7 @@ export default function AlarmEditScreen() {
                 <TimeWheel minutes={mins} onChange={setMins} twelveHour={!uses24h()} accessibilityLabel={t('edit.wheelLabel')} ready={arrived} />
                 <BedLine text={bedLine} />
 
-                <View style={styles.repeat}>
-                    <View style={styles.repeatTop}>
-                        <Text style={styles.label}>{t('edit.repeat')}</Text>
-                        <Text style={styles.value}>{repeatText(days)}</Text>
-                    </View>
-                    <View style={styles.days}>
-                        {letter.map((l, i) => (
-                            <Pressable
-                                key={i}
-                                style={[styles.day, days[i] && styles.dayOn]}
-                                onPress={() => {
-                                    tick();
-                                    setDays(d => d.map((on, j) => (j === i ? !on : on)));
-                                }}
-                                accessibilityRole="button"
-                                accessibilityLabel={short[i]}
-                                accessibilityState={{ selected: days[i] }}
-                            >
-                                <Text style={[styles.dayText, days[i] && styles.dayTextOn]}>{l}</Text>
-                            </Pressable>
-                        ))}
-                    </View>
-                </View>
+                <Repeat days={days} onChange={setDays} />
 
                 <View style={[styles.group, styles.gap]}>
                     <Row first icon="pricetag-outline" label={t('edit.label')}>
@@ -211,11 +188,41 @@ export default function AlarmEditScreen() {
     );
 }
 
+/** The Repeat card: the days text, then a tap target per weekday (Sunday first, like `days`). */
+export function Repeat({ days, onChange }: { days: boolean[]; onChange: (days: boolean[]) => void }) {
+    const { letter, short } = strings().days;
+    return (
+        <View style={styles.repeat}>
+            <View style={styles.repeatTop}>
+                <Text style={styles.label}>{t('edit.repeat')}</Text>
+                <Text style={styles.value}>{repeatText(days)}</Text>
+            </View>
+            <View style={styles.days}>
+                {letter.map((l, i) => (
+                    <Pressable
+                        key={i}
+                        style={[styles.day, days[i] && styles.dayOn]}
+                        onPress={() => {
+                            tick();
+                            onChange(days.map((on, j) => (j === i ? !on : on)));
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel={short[i]}
+                        accessibilityState={{ selected: days[i] }}
+                    >
+                        <Text style={[styles.dayText, days[i] && styles.dayTextOn]}>{l}</Text>
+                    </Pressable>
+                ))}
+            </View>
+        </View>
+    );
+}
+
 /**
  * "Bed by 9:15 PM for 9 hours of sleep". Its slot is always there, so nothing below jumps;
  * when no bedtime is left tonight it fades out (keeping its last words while it goes) and back in.
  */
-function BedLine({ text }: { text: string | null }) {
+export function BedLine({ text }: { text: string | null }) {
     const last = useRef(text ?? '');
     if (text) last.current = text;
     const shown = useSharedValue(text ? 1 : 0);
@@ -232,7 +239,7 @@ function BedLine({ text }: { text: string | null }) {
 }
 
 /** A grouped-list row: blue icon tile, label, then a value with a chevron (tap cycles or opens) or a control. */
-function Row({ first, icon, label, value, onPress, children }: {
+export function Row({ first, icon, label, value, onPress, children }: {
     first?: boolean;
     icon: ComponentProps<typeof Ionicons>['name'];
     label: string;
@@ -271,7 +278,8 @@ function Row({ first, icon, label, value, onPress, children }: {
     );
 }
 
-const styles = StyleSheet.create({
+/** Exported for screens built from the same parts (onboarding). */
+export const styles = StyleSheet.create({
     screen: { flex: 1, backgroundColor: W.mist },
     header: { height: 56, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 8 },
     headerButton: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 12 },

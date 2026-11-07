@@ -6,7 +6,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants,{ ExecutionEnvironment } from 'expo-constants';
 import { Platform } from 'react-native';
-import Purchases, { type PurchasesOffering } from 'react-native-purchases';
+import Purchases, { type PurchasesPackage } from 'react-native-purchases';
 
 import { posthog } from '@/utils/analytics';
 
@@ -19,12 +19,8 @@ const ENTITLEMENT_IDENTIFIER = 'premium_access';
 // Main offering ("#1 Wakey Paywall"); the SDK keys offerings by identifier, not the REST id
 const OFFERING_IDENTIFIER = 'default';
 
-// Same paywall plus a close button that leads to the one-time offer (offering "closable")
-const CLOSABLE_OFFERING_IDENTIFIER = 'closable';
-
-// One-time discounted offer shown when the main paywall is closed (RevenueCat offering "winback")
-const OFFER_OFFERING_IDENTIFIER = 'winback';
-const OFFER_SEEN_KEY = '@paywall_offer_seen';
+// The first paywall can be closed once; from then on it can't (the 1.0 pattern, best converting so far).
+const PAYWALL_SEEN_KEY = '@paywall_v3_seen';
 
 let isConfigured = false;
 
@@ -64,24 +60,51 @@ const ready = async (): Promise<boolean> => {
     return isConfigured;
 };
 
+/** One plan as the paywall shows it. `pkg` is null only for the dev stand-in (web, Expo Go). */
+export type Plan = { price: number; priceString: string; currencyCode: string; pkg: PurchasesPackage | null };
+export type Plans = { yearly?: Plan; lifetime?: Plan; weekly?: Plan };
+
+const plan = (pkg: PurchasesPackage | null | undefined): Plan | undefined =>
+    pkg ? { price: pkg.product.price, priceString: pkg.product.priceString, currencyCode: pkg.product.currencyCode, pkg } : undefined;
+
 /**
- * Offerings for the hard paywall, shown in order. Until the one-time offer has been seen:
- * the copy with an X ("closable"), then the offer ("winback"), then the main paywall
- * with no X. After that, only the main one. Empty where RevenueCat isn't set up.
+ * The main offering's yearly, lifetime and weekly packages with live prices. Null where RevenueCat isn't
+ * set up or the offering can't load.
  */
-export async function paywallSequence(): Promise<PurchasesOffering[]> {
+export async function loadPlans(): Promise<Plans | null> {
     try {
-        if (!(await ready())) return [];
-        const { all } = await Purchases.getOfferings();
-        const offer = all[OFFER_OFFERING_IDENTIFIER];
-        const closable = all[CLOSABLE_OFFERING_IDENTIFIER];
-        const offerPending = !!offer && !!closable && !(await AsyncStorage.getItem(OFFER_SEEN_KEY));
-        return (offerPending ? [closable, offer, all[OFFERING_IDENTIFIER]] : [all[OFFERING_IDENTIFIER]]).filter(Boolean);
+        if (!(await ready())) return null;
+        const { all, current } = await Purchases.getOfferings();
+        const offering = all[OFFERING_IDENTIFIER] ?? current;
+        if (!offering) return null;
+        return { yearly: plan(offering.annual), lifetime: plan(offering.lifetime), weekly: plan(offering.weekly) };
     } catch (error) {
-        console.error('Error loading paywall offerings:', error);
-        return []; // offline: the paywall view falls back to the current offering
+        console.error('Error loading plans:', error);
+        return null;
     }
 }
+
+/** Buys a plan; true once premium is active, false if cancelled. Throws on a real failure. */
+export async function buy(pkg: PurchasesPackage): Promise<boolean> {
+    try {
+        const { customerInfo } = await Purchases.purchasePackage(pkg);
+        return customerInfo.entitlements.active[ENTITLEMENT_IDENTIFIER] !== undefined;
+    } catch (error: any) {
+        if (error?.userCancelled) return false;
+        throw error;
+    }
+}
+
+/** Restores purchases; true when that brings premium back. */
+export async function restore(): Promise<boolean> {
+    if (!(await ready())) return false;
+    const info = await Purchases.restorePurchases();
+    return info.entitlements.active[ENTITLEMENT_IDENTIFIER] !== undefined;
+}
+
+/** Only the first paywall a person sees has a close button. */
+export const paywallClosable = async () => !(await AsyncStorage.getItem(PAYWALL_SEEN_KEY).catch(() => '1'));
+export const markPaywallSeen = () => AsyncStorage.setItem(PAYWALL_SEEN_KEY, '1').catch(() => undefined);
 
 // Hard paywall: true when the app should stay behind it. RevenueCat is only
 // configured on iOS, and Expo Go only has its mock mode (nothing can be bought),
@@ -91,11 +114,6 @@ export const needsPaywall = async (): Promise<boolean> => {
     if (Platform.OS !== 'ios' || Constants.executionEnvironment === ExecutionEnvironment.StoreClient) return false;
     return !(await checkPremiumStatus());
 };
-
-/** PostHog experiment flag: 'early' shows the paywall right after the onboarding game. */
-export const PAYWALL_POSITION_FLAG = 'onboarding-paywall-position';
-
-export const markOfferSeen =() => AsyncStorage.setItem(OFFER_SEEN_KEY, '1').catch(() => undefined);
 
 /**
  * Check if user has premium access

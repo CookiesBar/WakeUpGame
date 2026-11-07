@@ -1,4 +1,4 @@
-/** Math mission problems. 0 = easy (a + b), 2 = hard (one-step university math). Level 1 (medium) is retired. */
+/** Math mission problems. 0 = easy (one of + − × ÷), 2 = hard (one-step university math). Level 1 (medium) is retired. */
 export type MathLevel = 0 | 2;
 
 export interface MathProblem {
@@ -43,9 +43,27 @@ const HARD: ((rand: () => number) => MathProblem)[] = [
   },
 ];
 
+/** Easy: the four basics, answers always positive whole numbers (the keypad has no minus or decimal point). */
+const EASY: ((rand: () => number) => MathProblem)[] = [
+  rand => {
+    const a = int(10, 49, rand), b = int(10, 49, rand);
+    return { text: `${a} + ${b}`, answer: a + b };
+  },
+  rand => {
+    const a = int(20, 99, rand), b = int(10, a - 1, rand);
+    return { text: `${a} − ${b}`, answer: a - b };
+  },
+  rand => {
+    const a = int(3, 9, rand), b = int(3, 12, rand);
+    return { text: `${a} × ${b}`, answer: a * b };
+  },
+  rand => {
+    const b = int(2, 9, rand), q = int(3, 12, rand);
+    return { text: `${b * q} ÷ ${b}`, answer: q };
+  },
+];
+
 export function makeProblem(level: MathLevel, rand: () => number = Math.random): MathProblem {
-  if (level === 2) return HARD[int(0, HARD.length - 1, rand)](rand);
-  const a = int(10, 49, rand);
-  const b = int(10, 49, rand);
-  return { text: `${a} + ${b}`, answer: a + b };
+  const kinds = level === 2 ? HARD : EASY;
+  return kinds[int(0, kinds.length - 1, rand)](rand);
 }

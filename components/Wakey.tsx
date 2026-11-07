@@ -78,7 +78,8 @@ const FACE: Record<Mood, { eyes: EyeName; mouth: MouthName; gaze: number }> = {
   // The rig's half-lid and squint read as annoyed at app sizes: asleep (pic 1) and a downcast look stay gentle.
   sleepy: { eyes: 'asleep', mouth: 'sleepy', gaze: 0 },
   snoozed: { eyes: 'look-down', mouth: 'flat', gaze: 0.4 },
-  ringing: { eyes: 'surprised-wide', mouth: 'open-shout', gaze: 0.5 },
+  // Normal open eyes, not 'surprised-wide': its small pupils looked odd while the bells ring (user, 2026-11-07).
+  ringing: { eyes: 'neutral', mouth: 'open-shout', gaze: 0.5 },
   happy: { eyes: 'happy-closed', mouth: 'open-shout', gaze: 0 },
   proud: { eyes: 'happy-closed', mouth: 'smile', gaze: 0 },
   // The sheet's Alarm pose: eyes squeezed shut under wavy brows, shouting (its SNOOZE plate is left out).
