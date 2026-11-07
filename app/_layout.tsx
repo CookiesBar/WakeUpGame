@@ -208,7 +208,7 @@ export default function RootLayout() {
         if (!hit) return;
         const data = { alarmId: hit.alarm.id, soundUri: hit.alarm.soundUri ?? undefined, gradualVolume: hit.alarm.gradualVolume, label: hit.alarm.label };
         if (hit.again) return ringAgain(data);
-        const key = `${hit.alarm.id}@play`;
+        const key = `${hit.alarm.id}@${hit.alarm.time}`; // same key as its notifications: one game, not two
         const last = lastHandledAt.current.get(key);
         if (last !== undefined && Date.now() - last < BACKUP_WINDOW_MS) return;
         lastHandledAt.current.set(key, Date.now());

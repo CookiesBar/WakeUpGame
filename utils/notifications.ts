@@ -144,6 +144,9 @@ export const requestNotificationPermissions = async (): Promise<boolean> => {
         if (existingStatus !== 'granted') {
             const { status } = await Notifications.requestPermissionsAsync();
             finalStatus = status;
+            // PostHog Workflows push: the plugin registers the token on later launches; this covers the first grant.
+            if (status === 'granted' && Platform.OS === 'ios' && !IN_EXPO_GO)
+                Notifications.getDevicePushTokenAsync().then(tk => posthog.registerPushNotificationToken(tk.data)).catch(() => {});
         }
 
         if (finalStatus !== 'granted') {
@@ -151,8 +154,6 @@ export const requestNotificationPermissions = async (): Promise<boolean> => {
             return false;
         }
 
-        // PostHog Workflows push: the plugin registers the token on later launches; this covers the first grant.
-        if (Platform.OS === 'ios' && !IN_EXPO_GO) Notifications.getDevicePushTokenAsync().then(tk => posthog.registerPushNotificationToken(tk.data)).catch(() => {});
         // Notifications stay on even with AlarmKit: they're how a tap opens the wake-up game.
         await alarmKit?.requestAuthorization().catch(error => console.error('AlarmKit authorization failed:', error));
         return true;
@@ -163,7 +164,16 @@ export const requestNotificationPermissions = async (): Promise<boolean> => {
 };
 
 // Schedule alarm notification with backup notifications
-export const scheduleAlarmNotification = async (alarm: Alarm): Promise<string | null> => {
+// One schedule at a time: onboarding's background call and the re-arm on Home's mount must not interleave
+// their cancel-then-schedule for the same alarm (doubled bursts). A failed one is retried by the next re-arm.
+let scheduling: Promise<unknown> = Promise.resolve();
+export const scheduleAlarmNotification = (alarm: Alarm): Promise<string | null> => {
+    const run = scheduling.then(() => scheduleAlarmNotificationNow(alarm));
+    scheduling = run.catch(() => undefined);
+    return run;
+};
+
+const scheduleAlarmNotificationNow = async (alarm: Alarm): Promise<string | null> => {
     try {
         // Cancel existing notifications for this alarm
         await cancelAlarmNotifications(alarm.id);

@@ -127,11 +127,14 @@ enum WakeyAlarmKit {
     guard let uuid = UUID(uuidString: id) else {
       throw Exception(name: "InvalidId", description: "Not a UUID: \(id)")
     }
+    // Play dismisses without running the stop (re-arm) intent, so a cancelled Face ID would end the chain.
+    // Only the links that have later links behind them get Play; the re-arming last link keeps Stop only.
+    let playText = rearms > 0 ? nil : openText
     let alert = AlarmPresentation.Alert(
       title: "\(title)",
       stopButton: AlarmButton(text: "\(stopText)", textColor: .white, systemImageName: "stop.circle"),
-      secondaryButton: openText.map { AlarmButton(text: "\($0)", textColor: .white, systemImageName: "figure.walk") },
-      secondaryButtonBehavior: openText == nil ? nil : .custom
+      secondaryButton: playText.map { AlarmButton(text: "\($0)", textColor: .white, systemImageName: "figure.walk") },
+      secondaryButtonBehavior: playText == nil ? nil : .custom
     )
     let attributes = AlarmAttributes<WakeyAlarmMetadata>(
       presentation: AlarmPresentation(alert: alert),
@@ -140,9 +143,9 @@ enum WakeyAlarmKit {
     )
     let alertSound: AlertConfiguration.AlertSound = sound.map { .named($0) } ?? .default
     let stopIntent: (any LiveActivityIntent)? = rearms > 0
-      ? WakeyRearmIntent(alarmId: id, title: title, stopText: stopText, sound: sound, openText: openText)
+      ? WakeyRearmIntent(alarmId: id, title: title, stopText: stopText, sound: sound)
       : nil
-    let openIntent: (any LiveActivityIntent)? = openText.map { _ in WakeyOpenGameIntent(alarmId: id) }
+    let openIntent: (any LiveActivityIntent)? = playText.map { _ in WakeyOpenGameIntent(alarmId: id) }
     let configuration = AlarmManager.AlarmConfiguration(
       countdownDuration: nil,
       schedule: .fixed(Date(timeIntervalSince1970: epochMs / 1000)),
@@ -234,10 +237,14 @@ enum WakeyAlarmKit {
   }
 
   static let openKey = "WakeyAlarm.open"
+  static let openAtKey = "WakeyAlarm.openAt"
+  static let openTTL: TimeInterval = 5 * 60 // a Play older than this is stale: never start a game hours later
   static func takeOpen() -> String? {
     let id = UserDefaults.standard.string(forKey: openKey)
+    let at = UserDefaults.standard.double(forKey: openAtKey)
     UserDefaults.standard.removeObject(forKey: openKey)
-    return id
+    UserDefaults.standard.removeObject(forKey: openAtKey)
+    return Date().timeIntervalSince1970 - at < openTTL ? id : nil
   }
 
   static func stopAlerting() {
@@ -259,16 +266,14 @@ public struct WakeyRearmIntent: LiveActivityIntent {
   @Parameter(title: "title") public var alarmTitle: String
   @Parameter(title: "stopText") public var stopText: String
   @Parameter(title: "sound") public var sound: String?
-  @Parameter(title: "openText") public var openText: String?
 
   public init() {}
 
-  init(alarmId: String, title: String, stopText: String, sound: String?, openText: String?) {
+  init(alarmId: String, title: String, stopText: String, sound: String?) {
     self.alarmId = alarmId
     self.alarmTitle = title
     self.stopText = stopText
     self.sound = sound
-    self.openText = openText
   }
 
   public func perform() async throws -> some IntentResult {
@@ -281,7 +286,7 @@ public struct WakeyRearmIntent: LiveActivityIntent {
       id: alarmId,
       epochMs: (Date().timeIntervalSince1970 + WakeyAlarmKit.rearmDelay) * 1000,
       title: alarmTitle, stopText: stopText, sound: sound,
-      rearms: left - 1, openText: openText
+      rearms: left - 1
     )
     return .result()
   }
@@ -304,6 +309,7 @@ public struct WakeyOpenGameIntent: LiveActivityIntent {
 
   public func perform() async throws -> some IntentResult {
     UserDefaults.standard.set(alarmId, forKey: WakeyAlarmKit.openKey)
+    UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: WakeyAlarmKit.openAtKey)
     return .result()
   }
 }

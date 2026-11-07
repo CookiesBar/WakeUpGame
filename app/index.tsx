@@ -17,13 +17,14 @@ import { strings } from '@/i18n';
 import { formatClock, repeatText } from '@/utils/clockFormat';
 import { streakV2, type StreakInfo } from '@/utils/stats';
 import { FREE_ALARMS, needsPaywall, requestPaywall } from '@/utils/revenueCat';
-import { getWakeLog, type Alarm } from '@/utils/storage';
+import { getAlarms, getWakeLog, type Alarm } from '@/utils/storage';
 
 export default function HomeScreen() {
   const { alarms, loading, toggleAlarmEnabled } = useAlarms();
   // Free users keep one alarm; the "+" past it opens the paywall instead.
   const addAlarm = async () => {
-    if (alarms.length >= FREE_ALARMS && (await needsPaywall().catch(() => false))) return requestPaywall();
+    // Count from storage: the context's list is empty until it has loaded.
+    if ((await getAlarms()).length >= FREE_ALARMS && (await needsPaywall().catch(() => false))) return requestPaywall();
     router.push('/alarm/new');
   };
   const { t } = useLocale();

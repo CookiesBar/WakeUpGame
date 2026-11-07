@@ -18,7 +18,7 @@ const ENTITLEMENT_IDENTIFIER = 'premium_access';
 // Main offering ("#1 Wakey Paywall"); the SDK keys offerings by identifier, not the REST id
 const OFFERING_IDENTIFIER = 'default';
 
-// The first paywall can be closed once; from then on it can't (the 1.0 pattern, best converting so far).
+// Soft paywall: the X always closes it; free users keep one alarm (see FREE_ALARMS).
 
 let isConfigured = false;
 
