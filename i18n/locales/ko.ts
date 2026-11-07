@@ -250,6 +250,7 @@ const ko: typeof en = {
     },
     alarmKit: {
         stop: '중단',
+        play: '플레이',
     },
     settings: {
         title: '설정',

@@ -8,7 +8,10 @@ interface WakeyAlarmNative {
     isSupported(): boolean;
     authorizationState(): AlarmKitAuth;
     requestAuthorization(): Promise<AlarmKitAuth>;
-    schedule(id: string, epochMs: number, title: string, stopText: string, sound: string | null, rearm: boolean): Promise<void>;
+    /** openText: a Play button that opens the app into the game (builds before it ignore the extra argument). */
+    schedule(id: string, epochMs: number, title: string, stopText: string, sound: string | null, rearm: boolean, openText: string | null): Promise<void>;
+    /** The AlarmKit id whose Play button opened the app, once. Builds before Play lack it. */
+    takeOpenRequest?(): string | null;
     /** Builds from before the Yes / No check lack these three. */
     scheduleCheck?(id: string, epochMs: number, title: string, yesText: string, noText: string, sound: string | null, checkId: string): Promise<void>;
     linkToCheck?(checkId: string, id: string): void;

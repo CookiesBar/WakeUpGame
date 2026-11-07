@@ -250,6 +250,7 @@ const nl: typeof en = {
     },
     alarmKit: {
         stop: 'Stop',
+        play: 'Spelen',
     },
     settings: {
         title: 'Instellingen',

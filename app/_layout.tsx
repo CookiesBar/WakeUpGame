@@ -30,6 +30,7 @@ import {
   setupWakeCheckButtons,
   stopAlarmKitAlert,
   takeAlarmKitAnswers,
+  takeAlarmKitPlay,
   takeRingAgain,
   WAKE_NO,
   WAKE_YES,
@@ -202,6 +203,17 @@ export default function RootLayout() {
   useEffect(() => {
     const collect = () => {
       takeAlarmKitAnswers().forEach(([checkAlarmId, awake]) => answer(checkAlarmId, awake));
+      // Play on the lock-screen alarm opened the app: straight into the game.
+      takeAlarmKitPlay().then(hit => {
+        if (!hit) return;
+        const data = { alarmId: hit.alarm.id, soundUri: hit.alarm.soundUri ?? undefined, gradualVolume: hit.alarm.gradualVolume, label: hit.alarm.label };
+        if (hit.again) return ringAgain(data);
+        const key = `${hit.alarm.id}@play`;
+        const last = lastHandledAt.current.get(key);
+        if (last !== undefined && Date.now() - last < BACKUP_WINDOW_MS) return;
+        lastHandledAt.current.set(key, Date.now());
+        queueRing(data);
+      });
       processWakeChecks().then(() =>
         takeRingAgain().forEach(alarm =>
           ringAgain({ alarmId: alarm.id, soundUri: alarm.soundUri ?? undefined, gradualVolume: alarm.gradualVolume, label: alarm.label }),

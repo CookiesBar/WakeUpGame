@@ -250,6 +250,7 @@ const sv: typeof en = {
     },
     alarmKit: {
         stop: 'Stoppa',
+        play: 'Spela',
     },
     settings: {
         title: 'Inställningar',

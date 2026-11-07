@@ -248,6 +248,7 @@ const en = {
     },
     alarmKit: {
         stop: 'Stop',
+        play: 'Play',
     },
     settings: {
         title: 'Settings',

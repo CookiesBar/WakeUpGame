@@ -250,6 +250,7 @@ const cs: typeof en = {
     },
     alarmKit: {
         stop: 'Stop',
+        play: 'Hrát',
     },
     settings: {
         title: 'Nastavení',

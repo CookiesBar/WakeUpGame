@@ -250,6 +250,7 @@ const ja: typeof en = {
     },
     alarmKit: {
         stop: '停止',
+        play: 'プレイ',
     },
     settings: {
         title: '設定',

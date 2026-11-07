@@ -55,7 +55,7 @@ const armAlarmKitChain = async (key: string, firesAt: number, title: string, sou
     try {
         for (let i = 0; i < ALARMKIT_CHAIN; i++) {
             const last = i === ALARMKIT_CHAIN - 1;
-            await alarmKit.schedule(alarmKitId(key, i), firesAt + i * ALARMKIT_CHAIN_INTERVAL_MS, title, t('alarmKit.stop'), soundFile, last);
+            await alarmKit.schedule(alarmKitId(key, i), firesAt + i * ALARMKIT_CHAIN_INTERVAL_MS, title, t('alarmKit.stop'), soundFile, last, t('alarmKit.play'));
         }
         return true;
     } catch (error) {
@@ -356,6 +356,19 @@ const serial = <T,>(fn: () => Promise<T>): Promise<T> => {
 // the whole wake-up game plays. It has its own keys (`ringAgainId`, AlarmKit `again-<id>`), because re-arming the
 // alarm for its next day cancels everything keyed by `alarmId`, and the app does that on every return to the foreground.
 const againKey = (alarmId: string) => `again-${alarmId}`;
+
+/** Play tapped on an AlarmKit alarm: which alarm it was, and whether it was a ring-again (null if none / unknown). */
+export const takeAlarmKitPlay = async (): Promise<{ alarm: Alarm; again: boolean } | null> => {
+    const id = alarmKit?.takeOpenRequest?.();
+    if (!id) return null;
+    for (const alarm of await getAlarms()) {
+        for (let i = 0; i < ALARMKIT_CHAIN; i++) {
+            if (alarmKitId(alarm.id, i) === id) return { alarm, again: false };
+            if (alarmKitId(againKey(alarm.id), i) === id) return { alarm, again: true };
+        }
+    }
+    return null;
+};
 // The alarms whose check just rang out while their ring-again is still going: open the game for them.
 let ringNow: Alarm[] = [];
 /** Alarms to ring again now (read once; the root layout opens the game for each). */

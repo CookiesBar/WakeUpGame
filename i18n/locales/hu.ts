@@ -250,6 +250,7 @@ const hu: typeof en = {
     },
     alarmKit: {
         stop: 'Leállítás',
+        play: 'Játék',
     },
     settings: {
         title: 'Beállítások',

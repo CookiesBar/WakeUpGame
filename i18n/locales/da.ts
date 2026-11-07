@@ -250,6 +250,7 @@ const da: typeof en = {
     },
     alarmKit: {
         stop: 'Stop',
+        play: 'Spil',
     },
     settings: {
         title: 'Indstillinger',

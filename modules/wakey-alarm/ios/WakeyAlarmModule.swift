@@ -33,11 +33,12 @@ public class WakeyAlarmModule: Module {
       return "unsupported"
     }
 
-    AsyncFunction("schedule") { (id: String, epochMs: Double, title: String, stopText: String, sound: String?, rearm: Bool) async throws in
+    // openText: a second button that opens the app (after Face ID) straight into the wake-up game.
+    AsyncFunction("schedule") { (id: String, epochMs: Double, title: String, stopText: String, sound: String?, rearm: Bool, openText: String?) async throws in
       #if canImport(AlarmKit)
       if #available(iOS 26.0, *) {
         try await WakeyAlarmKit.schedule(id: id, epochMs: epochMs, title: title, stopText: stopText, sound: sound,
-                                         rearms: rearm ? WakeyAlarmKit.maxRearms : 0)
+                                         rearms: rearm ? WakeyAlarmKit.maxRearms : 0, openText: openText)
         return
       }
       #endif
@@ -68,6 +69,14 @@ public class WakeyAlarmModule: Module {
       if #available(iOS 26.0, *) { return WakeyAlarmKit.takeAnswers() }
       #endif
       return [:]
+    }
+
+    // The alarm id whose Play button opened the app since the last call (nil if none). Reading clears it.
+    Function("takeOpenRequest") { () -> String? in
+      #if canImport(AlarmKit)
+      if #available(iOS 26.0, *) { return WakeyAlarmKit.takeOpen() }
+      #endif
+      return nil
     }
 
     Function("cancel") { (id: String) in
@@ -114,15 +123,15 @@ enum WakeyAlarmKit {
   static func rearmKey(_ id: String) -> String { "WakeyAlarm.rearm:\(id)" }
 
   // rearms > 0: Stop runs WakeyRearmIntent, which schedules this id again.
-  static func schedule(id: String, epochMs: Double, title: String, stopText: String, sound: String?, rearms: Int) async throws {
+  static func schedule(id: String, epochMs: Double, title: String, stopText: String, sound: String?, rearms: Int, openText: String? = nil) async throws {
     guard let uuid = UUID(uuidString: id) else {
       throw Exception(name: "InvalidId", description: "Not a UUID: \(id)")
     }
     let alert = AlarmPresentation.Alert(
       title: "\(title)",
       stopButton: AlarmButton(text: "\(stopText)", textColor: .white, systemImageName: "stop.circle"),
-      secondaryButton: nil,
-      secondaryButtonBehavior: nil
+      secondaryButton: openText.map { AlarmButton(text: "\($0)", textColor: .white, systemImageName: "figure.walk") },
+      secondaryButtonBehavior: openText == nil ? nil : .custom
     )
     let attributes = AlarmAttributes<WakeyAlarmMetadata>(
       presentation: AlarmPresentation(alert: alert),
@@ -131,14 +140,15 @@ enum WakeyAlarmKit {
     )
     let alertSound: AlertConfiguration.AlertSound = sound.map { .named($0) } ?? .default
     let stopIntent: (any LiveActivityIntent)? = rearms > 0
-      ? WakeyRearmIntent(alarmId: id, title: title, stopText: stopText, sound: sound)
+      ? WakeyRearmIntent(alarmId: id, title: title, stopText: stopText, sound: sound, openText: openText)
       : nil
+    let openIntent: (any LiveActivityIntent)? = openText.map { _ in WakeyOpenGameIntent(alarmId: id) }
     let configuration = AlarmManager.AlarmConfiguration(
       countdownDuration: nil,
       schedule: .fixed(Date(timeIntervalSince1970: epochMs / 1000)),
       attributes: attributes,
       stopIntent: stopIntent,
-      secondaryIntent: nil,
+      secondaryIntent: openIntent,
       sound: alertSound
     )
     cancel(id: id) // re-scheduling the same id replaces it
@@ -223,6 +233,13 @@ enum WakeyAlarmKit {
     return answers
   }
 
+  static let openKey = "WakeyAlarm.open"
+  static func takeOpen() -> String? {
+    let id = UserDefaults.standard.string(forKey: openKey)
+    UserDefaults.standard.removeObject(forKey: openKey)
+    return id
+  }
+
   static func stopAlerting() {
     guard let alarms = try? AlarmManager.shared.alarms else { return }
     for alarm in alarms where alarm.state == .alerting {
@@ -242,14 +259,16 @@ public struct WakeyRearmIntent: LiveActivityIntent {
   @Parameter(title: "title") public var alarmTitle: String
   @Parameter(title: "stopText") public var stopText: String
   @Parameter(title: "sound") public var sound: String?
+  @Parameter(title: "openText") public var openText: String?
 
   public init() {}
 
-  init(alarmId: String, title: String, stopText: String, sound: String?) {
+  init(alarmId: String, title: String, stopText: String, sound: String?, openText: String?) {
     self.alarmId = alarmId
     self.alarmTitle = title
     self.stopText = stopText
     self.sound = sound
+    self.openText = openText
   }
 
   public func perform() async throws -> some IntentResult {
@@ -262,8 +281,29 @@ public struct WakeyRearmIntent: LiveActivityIntent {
       id: alarmId,
       epochMs: (Date().timeIntervalSince1970 + WakeyAlarmKit.rearmDelay) * 1000,
       title: alarmTitle, stopText: stopText, sound: sound,
-      rearms: left - 1
+      rearms: left - 1, openText: openText
     )
+    return .result()
+  }
+}
+
+// Play on a ringing alarm: unlock, open the app, and JS starts the wake-up game for this alarm.
+// The chain's next links stay armed until the game's first step cancels them, so Play can't dodge the alarm.
+@available(iOS 26.0, *)
+public struct WakeyOpenGameIntent: LiveActivityIntent {
+  public static var title: LocalizedStringResource = "Play the wake-up game"
+  public static var openAppWhenRun: Bool = true
+
+  @Parameter(title: "alarmId") public var alarmId: String
+
+  public init() {}
+
+  init(alarmId: String) {
+    self.alarmId = alarmId
+  }
+
+  public func perform() async throws -> some IntentResult {
+    UserDefaults.standard.set(alarmId, forKey: WakeyAlarmKit.openKey)
     return .result()
   }
 }

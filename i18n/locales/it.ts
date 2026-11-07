@@ -250,6 +250,7 @@ const it: typeof en = {
     },
     alarmKit: {
         stop: 'Stop',
+        play: 'Gioca',
     },
     settings: {
         title: 'Impostazioni',

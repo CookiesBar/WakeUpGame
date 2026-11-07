@@ -250,6 +250,7 @@ const el: typeof en = {
     },
     alarmKit: {
         stop: 'Διακοπή',
+        play: 'Παίξε',
     },
     settings: {
         title: 'Ρυθμίσεις',
