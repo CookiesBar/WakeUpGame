@@ -1,5 +1,6 @@
 import ExpoModulesCore
 #if canImport(AlarmKit)
+import ActivityKit
 import AlarmKit
 import AppIntents
 import SwiftUI
