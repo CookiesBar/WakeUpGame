@@ -16,10 +16,16 @@ import { useLocale } from '@/contexts/LocaleContext';
 import { strings } from '@/i18n';
 import { formatClock, repeatText } from '@/utils/clockFormat';
 import { streakV2, type StreakInfo } from '@/utils/stats';
+import { FREE_ALARMS, needsPaywall, requestPaywall } from '@/utils/revenueCat';
 import { getWakeLog, type Alarm } from '@/utils/storage';
 
 export default function HomeScreen() {
   const { alarms, loading, toggleAlarmEnabled } = useAlarms();
+  // Free users keep one alarm; the "+" past it opens the paywall instead.
+  const addAlarm = async () => {
+    if (alarms.length >= FREE_ALARMS && (await needsPaywall().catch(() => false))) return requestPaywall();
+    router.push('/alarm/new');
+  };
   const { t } = useLocale();
   const insets = useSafeAreaInsets();
   const [info, setInfo] = useState<StreakInfo | null>(null);
@@ -52,7 +58,7 @@ export default function HomeScreen() {
           <Tap style={styles.round} onPress={() => router.push('/settings')} accessibilityLabel={t('home.settings')}>
             <Ionicons name="settings-outline" size={22} color={W.ink} />
           </Tap>
-          <Tap style={[styles.round, styles.add]} onPress={() => router.push('/alarm/new')} accessibilityLabel={t('edit.addTitle')}>
+          <Tap style={[styles.round, styles.add]} onPress={addAlarm} accessibilityLabel={t('edit.addTitle')}>
             <Ionicons name="add" size={26} color={W.paper} />
           </Tap>
         </View>

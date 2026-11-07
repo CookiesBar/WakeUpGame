@@ -1,6 +1,6 @@
 // The v3 paywall (canvas "Paywall v3", option C): a night-to-morning scene with Wakey on top, then a grouped list
-// of plans. Drawn inside the app's own full-screen view. Only the first paywall a person sees has an X; after that the plans
-// (or Restore) are the only way on. Prices come live from the RevenueCat offering. No free trial is offered.
+// of plans. Drawn inside the app's own full-screen view. Soft paywall: the X always closes it (free users keep one alarm).
+// Prices come live from the RevenueCat offering. No free trial is offered.
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as WebBrowser from 'expo-web-browser';
@@ -16,7 +16,7 @@ import { W, WFont } from '@/constants/white';
 import { useLocale } from '@/contexts/LocaleContext';
 import { posthog } from '@/utils/analytics';
 import { perMonth, yearlySaving } from '@/utils/plans';
-import { buy, loadPlans, markPaywallSeen, paywallClosable, restore, type Plans } from '@/utils/revenueCat';
+import { buy, loadPlans, restore, type Plans } from '@/utils/revenueCat';
 
 type Pick = 'yearly' | 'lifetime' | 'weekly';
 const ORDER: Pick[] = ['yearly', 'lifetime', 'weekly'];
@@ -33,7 +33,6 @@ export default function PaywallGate({ onUnlocked }: { onUnlocked: () => void }) 
     const { height } = useWindowDimensions();
     const sceneH = Math.round(Math.min(210, Math.max(150, height * 0.25)));
     const [plans, setPlans] = useState<Plans | null>(); // undefined = loading, null = couldn't load
-    const [closable, setClosable] = useState(false);
     const [pick, setPick] = useState<Pick>('yearly');
     const [busy, setBusy] = useState(false);
 
@@ -43,12 +42,7 @@ export default function PaywallGate({ onUnlocked }: { onUnlocked: () => void }) 
     }, []);
     useEffect(() => {
         load();
-        paywallClosable().then(first => {
-            const canClose = __DEV__ || first;
-            setClosable(canClose);
-            markPaywallSeen();
-            posthog.capture('paywall_viewed', { closable: canClose });
-        });
+        posthog.capture('paywall_viewed');
     }, [load]);
 
     const chosen = plans?.[pick] ? pick : ORDER.find(k => plans?.[k]);
@@ -108,13 +102,9 @@ export default function PaywallGate({ onUnlocked }: { onUnlocked: () => void }) 
     return (
         <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
             <View style={styles.header}>
-                {closable ? (
-                    <Tap style={styles.close} onPress={close} accessibilityLabel={t('paywall.close')} hitSlop={8}>
-                        <Ionicons name="close" size={20} color={W.graphite} />
-                    </Tap>
-                ) : (
-                    <View />
-                )}
+                <Tap style={styles.close} onPress={close} accessibilityLabel={t('paywall.close')} hitSlop={8}>
+                    <Ionicons name="close" size={20} color={W.graphite} />
+                </Tap>
                 <Tap style={styles.restore} onPress={onRestore} disabled={busy}>
                     <Text style={styles.restoreText}>{t('paywall.restore')}</Text>
                 </Tap>

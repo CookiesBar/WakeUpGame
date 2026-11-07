@@ -3,9 +3,8 @@
  * Handles subscription management and paywall presentation
  */
 
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants,{ ExecutionEnvironment } from 'expo-constants';
-import { Platform } from 'react-native';
+import { DeviceEventEmitter, Platform } from 'react-native';
 import Purchases, { type PurchasesPackage } from 'react-native-purchases';
 
 import { posthog } from '@/utils/analytics';
@@ -20,7 +19,6 @@ const ENTITLEMENT_IDENTIFIER = 'premium_access';
 const OFFERING_IDENTIFIER = 'default';
 
 // The first paywall can be closed once; from then on it can't (the 1.0 pattern, best converting so far).
-const PAYWALL_SEEN_KEY = '@paywall_v3_seen';
 
 let isConfigured = false;
 
@@ -102,11 +100,12 @@ export async function restore(): Promise<boolean> {
     return info.entitlements.active[ENTITLEMENT_IDENTIFIER] !== undefined;
 }
 
-/** Only the first paywall a person sees has a close button. */
-export const paywallClosable = async () => !(await AsyncStorage.getItem(PAYWALL_SEEN_KEY).catch(() => '1'));
-export const markPaywallSeen = () => AsyncStorage.setItem(PAYWALL_SEEN_KEY, '1').catch(() => undefined);
+/** Free users keep one alarm: adding another asks the root layout to show the paywall. */
+export const FREE_ALARMS = 1;
+export const SHOW_PAYWALL = 'wakey.showPaywall';
+export const requestPaywall = () => DeviceEventEmitter.emit(SHOW_PAYWALL);
 
-// Hard paywall: true when the app should stay behind it. RevenueCat is only
+// True when this person hasn't paid (paywall after onboarding and on a second alarm). RevenueCat is only
 // configured on iOS, and Expo Go only has its mock mode (nothing can be bought),
 // so skip it there. Dev builds always show the closable mock, to test the flow.
 export const needsPaywall = async (): Promise<boolean> => {

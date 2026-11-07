@@ -13,7 +13,7 @@ import { router, Stack, usePathname } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
-import { AppState, StyleSheet, View } from 'react-native';
+import { AppState, DeviceEventEmitter, StyleSheet, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 
@@ -34,7 +34,7 @@ import {
   WAKE_NO,
   WAKE_YES,
 } from '@/utils/notifications';
-import { needsPaywall } from '@/utils/revenueCat';
+import { needsPaywall, SHOW_PAYWALL } from '@/utils/revenueCat';
 import { LAST_MAJOR_KEY, major, RATED_AT_KEY, reviewDue, whatsNewDue } from '@/utils/updateFlow';
 import { initializeAudio, playAlarmSound } from '@/utils/sounds';
 
@@ -95,6 +95,10 @@ export default function RootLayout() {
   const pendingRing = useRef<RingData | null>(null);
 
   const [locked, setLocked] = useState(false);
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(SHOW_PAYWALL, () => setLocked(true));
+    return () => sub.remove();
+  }, []);
   const [update, setUpdate] = useState<{ askReview: boolean } | null>(null);
 
   // Handle alarm notification with deduplication
@@ -181,9 +185,8 @@ export default function RootLayout() {
 
     if (fontsLoaded) {
       checkOnboarding().then(async (isComplete) => {
-        // Decide before the splash hides, so home never flashes before the paywall.
-        if (isComplete) setLocked(await needsPaywall().catch(() => false));
-        // Updated from an older major: What's New once the app is unlocked (after the paywall, if any).
+        // Soft paywall: no paywall at launch (only after onboarding and on a second alarm).
+        // Updated from an older major: What's New once the app is ready.
         if (isComplete) {
           const stored = await AsyncStorage.multiGet([LAST_MAJOR_KEY, RATED_AT_KEY]).catch(() => null);
           if (stored && whatsNewDue(true, stored[0][1], APP_VERSION)) setUpdate({ askReview: reviewDue(stored[1][1], Date.now()) });
