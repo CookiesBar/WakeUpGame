@@ -201,9 +201,8 @@ export default function RootLayout() {
   // Yes / No tapped on a "Still awake?" AlarmKit alert waits natively until the app reads it. Then settle the
   // checks: one that rang out unanswered while its alarm still rings again opens the game.
   useEffect(() => {
-    const collect = () => {
-      takeAlarmKitAnswers().forEach(([checkAlarmId, awake]) => answer(checkAlarmId, awake));
-      // Play on the lock-screen alarm opened the app: straight into the game.
+    // Play on the lock-screen alarm, or an AlarmKit alarm ringing while the app is open: straight into the game.
+    const openRinging = () =>
       takeAlarmKitPlay().then(hit => {
         if (!hit) return;
         const data = { alarmId: hit.alarm.id, soundUri: hit.alarm.soundUri ?? undefined, gradualVolume: hit.alarm.gradualVolume, label: hit.alarm.label };
@@ -214,6 +213,9 @@ export default function RootLayout() {
         lastHandledAt.current.set(key, Date.now());
         queueRing(data);
       });
+    const collect = () => {
+      takeAlarmKitAnswers().forEach(([checkAlarmId, awake]) => answer(checkAlarmId, awake));
+      openRinging();
       processWakeChecks().then(() =>
         takeRingAgain().forEach(alarm =>
           ringAgain({ alarmId: alarm.id, soundUri: alarm.soundUri ?? undefined, gradualVolume: alarm.gradualVolume, label: alarm.label }),
@@ -224,8 +226,12 @@ export default function RootLayout() {
     // ponytail: No opens the app and its intent can land just after the first read (on launch or 'active'),
     // so look once more. A native event would close this race for good if 1.5 s ever proves too short.
     let again: ReturnType<typeof setTimeout> | undefined = setTimeout(collect, 1500);
+    // Already open when an alarm starts: nothing else tells the app if notifications are off, so look every 3 s.
+    let watch: ReturnType<typeof setInterval> | undefined = setInterval(openRinging, 3000);
     const sub = AppState.addEventListener('change', state => {
+      clearInterval(watch);
       if (state !== 'active') return;
+      watch = setInterval(openRinging, 3000);
       collect();
       clearTimeout(again);
       again = setTimeout(collect, 1500);
@@ -233,6 +239,7 @@ export default function RootLayout() {
     return () => {
       sub.remove();
       clearTimeout(again);
+      clearInterval(watch);
     };
     // Once: `answer` only reaches refs and module functions.
     // eslint-disable-next-line react-hooks/exhaustive-deps
