@@ -84,8 +84,7 @@
       ],
       "expo-font",
       "expo-status-bar",
-      "expo-web-browser",
-      "posthog-react-native/expo"
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true
