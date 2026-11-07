@@ -249,7 +249,7 @@ const nl: typeof en = {
         no: "Nee",
     },
     alarmKit: {
-        stop: 'Stop',
+        stop: 'Over een minuut weer',
         play: 'Spelen',
     },
     settings: {

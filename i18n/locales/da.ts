@@ -249,7 +249,7 @@ const da: typeof en = {
         no: "Nej",
     },
     alarmKit: {
-        stop: 'Stop',
+        stop: 'Igen om et minut',
         play: 'Spil',
     },
     settings: {

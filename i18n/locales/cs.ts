@@ -249,7 +249,7 @@ const cs: typeof en = {
         no: "Ne",
     },
     alarmKit: {
-        stop: 'Stop',
+        stop: 'Zpět za minutu',
         play: 'Hrát',
     },
     settings: {

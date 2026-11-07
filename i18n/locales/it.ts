@@ -249,7 +249,7 @@ const it: typeof en = {
         no: "No",
     },
     alarmKit: {
-        stop: 'Stop',
+        stop: 'Torna tra un minuto',
         play: 'Gioca',
     },
     settings: {

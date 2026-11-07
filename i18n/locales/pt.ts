@@ -249,7 +249,7 @@ const pt: typeof en = {
         no: "Não",
     },
     alarmKit: {
-        stop: 'Parar',
+        stop: 'Volta em um minuto',
         play: 'Jogar',
     },
     settings: {

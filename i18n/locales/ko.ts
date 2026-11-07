@@ -249,7 +249,7 @@ const ko: typeof en = {
         no: "아니요",
     },
     alarmKit: {
-        stop: '중단',
+        stop: '1분 뒤 다시 울려요',
         play: '플레이',
     },
     settings: {

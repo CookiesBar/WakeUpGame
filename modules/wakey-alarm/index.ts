@@ -12,6 +12,8 @@ interface WakeyAlarmNative {
     schedule(id: string, epochMs: number, title: string, stopText: string, sound: string | null, rearm: boolean, openText: string | null): Promise<void>;
     /** The AlarmKit id whose Play button opened the app, once. Builds before Play lack it. */
     takeOpenRequest?(): string | null;
+    /** AlarmKit ids ringing right now (lowercase). Builds before it lack it. */
+    alertingIds?(): string[];
     /** Builds from before the Yes / No check lack these three. */
     scheduleCheck?(id: string, epochMs: number, title: string, yesText: string, noText: string, sound: string | null, checkId: string): Promise<void>;
     linkToCheck?(checkId: string, id: string): void;

@@ -249,7 +249,7 @@ const sv: typeof en = {
         no: "Nej",
     },
     alarmKit: {
-        stop: 'Stoppa',
+        stop: 'Igen om en minut',
         play: 'Spela',
     },
     settings: {

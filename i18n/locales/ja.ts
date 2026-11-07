@@ -249,7 +249,7 @@ const ja: typeof en = {
         no: "いいえ",
     },
     alarmKit: {
-        stop: '停止',
+        stop: '1分後にまた鳴ります',
         play: 'プレイ',
     },
     settings: {

@@ -249,7 +249,7 @@ const hu: typeof en = {
         no: "Nem",
     },
     alarmKit: {
-        stop: 'Leállítás',
+        stop: 'Egy perc múlva újra',
         play: 'Játék',
     },
     settings: {

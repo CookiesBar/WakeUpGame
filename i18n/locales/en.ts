@@ -247,7 +247,7 @@ const en = {
         no: "No",
     },
     alarmKit: {
-        stop: 'Stop',
+        stop: 'Back in a minute',
         play: 'Play',
     },
     settings: {

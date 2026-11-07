@@ -79,6 +79,16 @@ public class WakeyAlarmModule: Module {
       return nil
     }
 
+    // Ids of the AlarmKit alarms ringing right now (opening the app while one rings starts its game).
+    Function("alertingIds") { () -> [String] in
+      #if canImport(AlarmKit)
+      if #available(iOS 26.0, *) {
+        return ((try? AlarmManager.shared.alarms) ?? []).filter { $0.state == .alerting }.map { $0.id.uuidString.lowercased() }
+      }
+      #endif
+      return []
+    }
+
     Function("cancel") { (id: String) in
       #if canImport(AlarmKit)
       if #available(iOS 26.0, *) { WakeyAlarmKit.cancel(id: id) }

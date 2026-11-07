@@ -31,7 +31,7 @@ import { useLocale } from '@/contexts/LocaleContext';
 import { preloadSfx, sfx } from '@/utils/sfx';
 import { formatClock } from '@/utils/clockFormat';
 import { makeProblem, type MathLevel } from '@/utils/math';
-import { armWakeCheck, cancelAlarmNotifications, cancelRingAgain, rescheduleRepeatingAlarms } from '@/utils/notifications';
+import { armWakeCheck, cancelAlarmNotifications, cancelRingAgain, holdAlarmKitWhileOpen, rescheduleRepeatingAlarms } from '@/utils/notifications';
 import { needsPaywall } from '@/utils/revenueCat';
 import { setAlarmVolume, stopAlarmSound } from '@/utils/sounds';
 import { createStepDetector } from '@/utils/stepDetector';
@@ -201,11 +201,28 @@ export default function RingScreen() {
 
     // First step (or "Can't walk?") = someone is up. The in-app alarm keeps ringing; stop the backup
     // notifications piling up on top. (Not on mount: the screen can open while they sleep.)
-    const engaged = useCallback(() => {
+    // AlarmKit's next links would ring over this screen's sound: hold them as one link kept 90 s ahead.
+    const release = useRef<(() => Promise<void>) | null>(null);
+    useEffect(() => {
         if (!alarmId) return;
+        let gone = false;
+        getAlarms().then(list => {
+            const alarm = list.find(a => a.id === alarmId);
+            if (alarm && !gone) release.current = holdAlarmKitWhileOpen(alarm, !!again);
+        });
+        return () => {
+            gone = true;
+            release.current?.(); // left without a step: the held link rings within 90 s
+        };
+    }, [alarmId, again]);
+
+    // Resolves once today's rings are cancelled: re-arm tomorrow only after that, or the cancel would wipe it.
+    const engaged = useCallback((): Promise<void> => {
+        if (!alarmId) return Promise.resolve();
+        const held = release.current?.() ?? Promise.resolve();
+        release.current = null;
         // A replay's own ringing is the ring-again; the alarm's notifications are already its next occurrence.
-        if (again) cancelRingAgain(alarmId);
-        else cancelAlarmNotifications(alarmId).catch(() => undefined);
+        return held.then(() => (again ? cancelRingAgain(alarmId) : cancelAlarmNotifications(alarmId))).catch(() => undefined);
     }, [alarmId, again]);
 
     /** Re-arm the next occurrence, or switch a one-time alarm off. Returns the stored alarm. */
@@ -247,8 +264,9 @@ export default function RingScreen() {
     const exitEarly = useCallback(async () => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
         stopAlarmSound();
-        engaged();
+        const cancelled = engaged();
         router.dismissTo('/');
+        await cancelled;
         if (!again) await settleAlarm().catch(() => undefined);
     }, [engaged, again, settleAlarm]);
 

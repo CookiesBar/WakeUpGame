@@ -367,9 +367,37 @@ const serial = <T,>(fn: () => Promise<T>): Promise<T> => {
 // alarm for its next day cancels everything keyed by `alarmId`, and the app does that on every return to the foreground.
 const againKey = (alarmId: string) => `again-${alarmId}`;
 
-/** Play tapped on an AlarmKit alarm: which alarm it was, and whether it was a ring-again (null if none / unknown). */
+// While the game screen is open its own sound rings, so the AlarmKit chain's next links would ring on top of it.
+// Swap them for one link kept WATCHDOG_MS ahead: leaving or killing the app lets it ring (and re-arm on Stop)
+// within that time, so the game still can't be dodged. The first step cancels it with the rest.
+const WATCHDOG_MS = 90 * 1000;
+const WATCHDOG_EVERY_MS = 30 * 1000;
+export const holdAlarmKitWhileOpen = (alarm: Alarm, again: boolean): (() => Promise<void>) => {
+    if (!alarmKit || alarmKit.authorizationState() !== 'authorized') return async () => {};
+    const key = again ? againKey(alarm.id) : alarm.id;
+    const sound = getBundledSound(alarm.soundUri).notificationSound;
+    const title = alarm.label || t('ring.defaultLabel');
+    for (let i = 1; i < ALARMKIT_CHAIN; i++) alarmKit.cancel(alarmKitId(key, i));
+    let inflight: Promise<unknown> = Promise.resolve();
+    const push = () => {
+        inflight = alarmKit!
+            .schedule(alarmKitId(key, 0), Date.now() + WATCHDOG_MS, title, t('alarmKit.stop'), sound, true, null)
+            .catch(error => console.error('AlarmKit watchdog failed:', error));
+    };
+    push();
+    const timer = setInterval(push, WATCHDOG_EVERY_MS);
+    return async () => {
+        clearInterval(timer);
+        await inflight; // so a cancel after this can't be undone by a push still on its way
+    };
+};
+
+/**
+ * The AlarmKit alarm the app should open the game for: Play was tapped, or one is ringing right now (its banner
+ * was tapped, or the app was opened while it rang). Which alarm, and whether it's a ring-again; null if none.
+ */
 export const takeAlarmKitPlay = async (): Promise<{ alarm: Alarm; again: boolean } | null> => {
-    const id = alarmKit?.takeOpenRequest?.();
+    const id = (alarmKit?.takeOpenRequest?.() ?? alarmKit?.alertingIds?.()[0])?.toLowerCase();
     if (!id) return null;
     for (const alarm of await getAlarms()) {
         for (let i = 0; i < ALARMKIT_CHAIN; i++) {
