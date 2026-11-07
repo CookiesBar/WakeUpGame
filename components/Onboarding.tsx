@@ -136,7 +136,9 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
             mathLevel,
         };
         posthog.capture('onboarding_completed', { steps, math_level: mathLevel, wake_check: wakeCheck, notifications_asked: askFirst });
-        await saveAlarm(alarm).then(() => scheduleAlarmNotification(alarm));
+        await saveAlarm(alarm);
+        // Scheduling (AlarmKit chain + backup notifications for each day) takes a few seconds; let it run behind the paywall.
+        scheduleAlarmNotification(alarm).catch(error => console.error('Scheduling the first alarm failed:', error));
         onComplete();
     };
 
